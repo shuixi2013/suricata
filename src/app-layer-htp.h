@@ -76,6 +76,8 @@
 #define HTP_FLAG_NEW_FILE_TX_TS     0x0400
 /** flag the state that a new file has been set in this tx */
 #define HTP_FLAG_NEW_FILE_TX_TC     0x0800
+/**flag the client side has issued a connect */
+#define HTP_FLAG_CLIENT_CONNECT     0x1000
 
 enum {
     HTP_BODY_NONE = 0,                  /**< Flag to indicate the current

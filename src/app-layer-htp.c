@@ -1960,6 +1960,12 @@ static int HTPCallbackRequest(htp_tx_t *tx) {
     /* request done, do raw reassembly now to inspect state and stream
      * at the same time. */
     AppLayerTriggerRawStreamReassembly(hstate->f);
+
+    /* Handle CONNECT message: flag flow to protocol destruction */
+    if (tx->request_method_number == HTP_M_CONNECT) {
+        hstate->flags |= HTP_FLAG_CLIENT_CONNECT;
+    }
+
     SCReturnInt(HTP_OK);
 }
 
@@ -1995,6 +2001,17 @@ static int HTPCallbackResponse(htp_tx_t *tx) {
     /* response done, do raw reassembly now to inspect state and stream
      * at the same time. */
     AppLayerTriggerRawStreamReassembly(hstate->f);
+
+    /* If we get a 200 after a CONNECT */
+    if (hstate->flags & HTP_FLAG_CLIENT_CONNECT) {
+        if (tx->response_status_number == 200) {
+            /* we reset the alproto */
+            hstate->f->flags &= ~FLOW_ALPROTO_DETECT_DONE;
+        } else {
+            hstate->flags &= ~HTP_FLAG_CLIENT_CONNECT;
+        }
+    }
+
     SCReturnInt(HTP_OK);
 }
 
