@@ -450,6 +450,18 @@ int AppLayerHandleTCPData(ThreadVars *tv, TcpReassemblyThreadCtx *ra_ctx,
             PACKET_PROFILING_APP_START(dp_ctx, f->alproto);
             r = AppLayerParse(dp_ctx->alproto_local_storage[f->alproto], f, f->alproto, flags, data, data_len);
             PACKET_PROFILING_APP_END(dp_ctx, f->alproto);
+            if (! (f->flags & FLOW_ALPROTO_DETECT_DONE) ){
+                /* FIXME Maybe more macro here */
+                AppLayerParserCleanupState(f);
+                f->alproto = ALPROTO_UNKNOWN;
+                f->alproto_ts = ALPROTO_UNKNOWN;
+                f->alproto_tc = ALPROTO_UNKNOWN;
+                /* FIXME Why, just tell me why ! */
+                f->flags |= FLOW_ALPROTO_DETECT_DONE;
+                FLOW_RESET_PM_DONE(f, flags);
+                FLOW_RESET_PP_DONE(f, flags);
+                StreamTcpResetStreamFlagAppProtoDetectionCompleted(stream);
+            }
         } else {
             SCLogDebug(" smsg not start, but no l7 data? Weird");
         }
