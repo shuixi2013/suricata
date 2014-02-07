@@ -46,6 +46,7 @@
 #include "util-checksum.h"
 #include "util-privs.h"
 #include "util-device.h"
+#include "util-host-info.h"
 #include "runmodes.h"
 
 #ifdef __SC_CUDA_SUPPORT__
@@ -523,6 +524,13 @@ TmEcode ReceivePfringThreadInit(ThreadVars *tv, void *initdata, void **data) {
      * the capture phase */
     int vlanbool = 0;
     if ((ConfGetBool("vlan.use-for-tracking", &vlanbool)) == 1 && vlanbool == 0) {
+        ptv->vlan_disabled = 1;
+    }
+
+    /* If kernel is older than 3.8, VLAN is not stripped so we don't
+     * get the info from packt extended header but we will use a standard
+     * parsing */
+    if (! SCKernelVersionIsAtLeast(3, 0)) {
         ptv->vlan_disabled = 1;
     }
 
