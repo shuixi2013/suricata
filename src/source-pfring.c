@@ -420,6 +420,12 @@ TmEcode ReceivePfringThreadInit(ThreadVars *tv, void *initdata, void **data) {
 
     opflag = PF_RING_REENTRANT | PF_RING_PROMISC;
 
+    /* if suri uses VLAN and if we have a recent kernel, we need
+     * to use parsed_pkt to get VLAN info */
+    if ((! ptv->vlan_disabled) && SCKernelVersionIsAtLeast(3, 0)) {
+        opflag |= PF_RING_LONG_HEADER;
+    }
+
     if (ptv->checksum_mode == CHECKSUM_VALIDATION_RXONLY) {
         if (strncmp(ptv->interface, "dna", 3) == 0) {
             SCLogWarning(SC_ERR_INVALID_VALUE,
