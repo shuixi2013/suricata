@@ -796,10 +796,7 @@ static void DCERPCUDPStateFree(void *s) {
         sstate->dcerpc.dcerpcresponse.stub_data_buffer = NULL;
         sstate->dcerpc.dcerpcresponse.stub_data_buffer_len = 0;
     }
-	if (s) {
-		SCFree(s);
-		s = NULL;
-	}
+    SCFree(s);
 }
 
 static int DCERPCUDPRegisterPatternsForProtocolDetection(void)
@@ -1049,6 +1046,7 @@ int DCERPCUDPParserTest01(void) {
     FLOW_INITIALIZE(&f);
 	f.protoctx = (void *)&ssn;
     f.proto = IPPROTO_UDP;
+    f.protomap = FlowGetProtoMapping(f.proto);
 
 	StreamTcpInitConfig(TRUE);
 

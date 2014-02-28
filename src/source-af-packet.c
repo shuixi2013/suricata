@@ -51,6 +51,7 @@
 #include "util-optimize.h"
 #include "util-checksum.h"
 #include "util-ioctl.h"
+#include "util-host-info.h"
 #include "tmqh-packetpool.h"
 #include "source-af-packet.h"
 #include "runmodes.h"
@@ -156,6 +157,10 @@ TmEcode NoAFPSupportExit(ThreadVars *tv, void *initdata, void **data)
 #define TP_STATUS_USER_BUSY (1 << 31)
 #endif
 
+#ifndef TP_STATUS_VLAN_VALID
+#define TP_STATUS_VLAN_VALID (1 << 4)
+#endif
+
 /** protect pfring_set_bpf_filter, as it is not thread safe */
 static SCMutex afpacket_bpf_set_filter_lock = SCMUTEX_INITIALIZER;
 
@@ -186,15 +191,17 @@ typedef struct AFPThreadVars_
     int cooked;
 
     /* counters */
-    uint32_t pkts;
+    uint64_t pkts;
     uint64_t bytes;
-    uint32_t errs;
+    uint64_t errs;
 
     ThreadVars *tv;
     TmSlot *slot;
 
     uint8_t *data; /** Per function and thread data */
     int datalen; /** Length of per function and thread data */
+
+    int vlan_disabled;
 
     char iface[AFP_IFACE_NAME_LENGTH];
     LiveDevice *livedev;
@@ -492,8 +499,8 @@ static inline void AFPDumpCounters(AFPThreadVars *ptv)
                 kstats.tp_packets, kstats.tp_drops);
         SCPerfCounterAddUI64(ptv->capture_kernel_packets, ptv->tv->sc_perf_pca, kstats.tp_packets);
         SCPerfCounterAddUI64(ptv->capture_kernel_drops, ptv->tv->sc_perf_pca, kstats.tp_drops);
-        (void) SC_ATOMIC_ADD(ptv->livedev->drop, kstats.tp_drops);
-        (void) SC_ATOMIC_ADD(ptv->livedev->pkts, kstats.tp_packets);
+        (void) SC_ATOMIC_ADD(ptv->livedev->drop, (uint64_t) kstats.tp_drops);
+        (void) SC_ATOMIC_ADD(ptv->livedev->pkts, (uint64_t) kstats.tp_packets);
     }
 #endif
 }
@@ -723,7 +730,7 @@ int AFPReadFromRing(AFPThreadVars *ptv)
             SCReturnInt(AFP_FAILURE);
         }
 
-        if (h.h2->tp_status & (TP_STATUS_KERNEL|TP_STATUS_USER_BUSY)) {
+        if ((! h.h2->tp_status) || (h.h2->tp_status & TP_STATUS_USER_BUSY)) {
             if (read_pkts == 0) {
                 if (loop_start == -1) {
                     loop_start = ptv->frame_offset;
@@ -771,7 +778,6 @@ int AFPReadFromRing(AFPThreadVars *ptv)
 
         ptv->pkts++;
         ptv->bytes += h.h2->tp_len;
-        (void) SC_ATOMIC_ADD(ptv->livedev->pkts, 1);
         p->livedev = ptv->livedev;
 
         /* add forged header */
@@ -786,6 +792,15 @@ int AFPReadFromRing(AFPThreadVars *ptv)
             SCLogDebug("Packet length (%d) > snaplen (%d), truncating",
                     h.h2->tp_len, h.h2->tp_snaplen);
         }
+
+        /* get vlan id from header */
+        if ((!ptv->vlan_disabled) &&
+            (h.h2->tp_status & TP_STATUS_VLAN_VALID || h.h2->tp_vlan_tci)) {
+            p->vlan_id[0] = h.h2->tp_vlan_tci;
+            p->vlan_idx = 1;
+            p->vlanh[0] = NULL;
+        }
+
         if (ptv->flags & AFP_ZERO_COPY) {
             if (PacketSetData(p, (unsigned char*)h.raw + h.h2->tp_mac, h.h2->tp_snaplen) == -1) {
                 TmqhOutputPacketpool(ptv->tv, p);
@@ -1085,6 +1100,8 @@ TmEcode ReceiveAFPLoop(ThreadVars *tv, void *data, void *slot)
         SCPerfSyncCountersIfSignalled(tv);
     }
 
+    AFPDumpCounters(ptv);
+    SCPerfSyncCountersIfSignalled(tv);
     SCReturnInt(TM_ECODE_OK);
 }
 
@@ -1595,6 +1612,22 @@ TmEcode ReceiveAFPThreadInit(ThreadVars *tv, void *initdata, void **data) {
     *data = (void *)ptv;
 
     afpconfig->DerefFunc(afpconfig);
+
+    /* A bit strange to have this here but we only have vlan information
+     * during reading so we need to know if we want to keep vlan during
+     * the capture phase */
+    int vlanbool = 0;
+    if ((ConfGetBool("vlan.use-for-tracking", &vlanbool)) == 1 && vlanbool == 0) {
+        ptv->vlan_disabled = 1;
+    }
+
+    /* If kernel is older than 3.0, VLAN is not stripped so we don't
+     * get the info from packet extended header but we will use a standard
+     * parsing of packet data (See Linux commit bcc6d47903612c3861201cc3a866fb604f26b8b2) */
+    if (! SCKernelVersionIsAtLeast(3, 0)) {
+        ptv->vlan_disabled = 1;
+    }
+
     SCReturnInt(TM_ECODE_OK);
 }
 
@@ -1615,7 +1648,7 @@ void ReceiveAFPThreadExitStats(ThreadVars *tv, void *data) {
             (uint64_t) SCPerfGetLocalCounterValue(ptv->capture_kernel_drops, tv->sc_perf_pca));
 #endif
 
-    SCLogInfo("(%s) Packets %" PRIu32 ", bytes %" PRIu64 "", tv->name, ptv->pkts, ptv->bytes);
+    SCLogInfo("(%s) Packets %" PRIu64 ", bytes %" PRIu64 "", tv->name, ptv->pkts, ptv->bytes);
 }
 
 /**
@@ -1655,6 +1688,11 @@ TmEcode DecodeAFP(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Packet
     SCEnter();
     DecodeThreadVars *dtv = (DecodeThreadVars *)data;
 
+    /* XXX HACK: flow timeout can call us for injected pseudo packets
+     *           see bug: https://redmine.openinfosecfoundation.org/issues/1107 */
+    if (p->flags & PKT_PSEUDO_STREAM_END)
+        return TM_ECODE_OK;
+
     /* update counters */
     SCPerfCounterIncr(dtv->counter_pkts, tv->sc_perf_pca);
 //    SCPerfCounterIncr(dtv->counter_pkts_per_sec, tv->sc_perf_pca);
@@ -1668,6 +1706,11 @@ TmEcode DecodeAFP(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Packet
 
     SCPerfCounterAddUI64(dtv->counter_avg_pkt_size, tv->sc_perf_pca, GET_PKT_LEN(p));
     SCPerfCounterSetUI64(dtv->counter_max_pkt_size, tv->sc_perf_pca, GET_PKT_LEN(p));
+
+    /* If suri has set vlan during reading, we increase vlan counter */
+    if (p->vlan_idx) {
+        SCPerfCounterIncr(dtv->counter_vlan, tv->sc_perf_pca);
+    }
 
     /* call the decoder */
     switch(p->datalink) {
@@ -1698,7 +1741,7 @@ TmEcode DecodeAFPThreadInit(ThreadVars *tv, void *initdata, void **data)
     SCEnter();
     DecodeThreadVars *dtv = NULL;
 
-    dtv = DecodeThreadVarsAlloc();
+    dtv = DecodeThreadVarsAlloc(tv);
 
     if (dtv == NULL)
         SCReturnInt(TM_ECODE_FAILED);

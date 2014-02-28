@@ -499,6 +499,9 @@ static void *DetectEngineLiveRuleSwap(void *arg)
     DetectEngineThreadCtx *old_det_ctx[no_of_detect_tvs];
     DetectEngineThreadCtx *new_det_ctx[no_of_detect_tvs];
     ThreadVars *detect_tvs[no_of_detect_tvs];
+    memset(old_det_ctx, 0x00, (no_of_detect_tvs * sizeof(DetectEngineThreadCtx)));
+    memset(new_det_ctx, 0x00, (no_of_detect_tvs * sizeof(DetectEngineThreadCtx)));
+    memset(detect_tvs, 0x00, (no_of_detect_tvs * sizeof(ThreadVars)));
 
     SCMutexUnlock(&tv_root_lock);
 
@@ -1408,18 +1411,32 @@ TmEcode DetectEngineThreadCtxDeinit(ThreadVars *tv, void *data) {
     if (det_ctx->bj_values != NULL)
         SCFree(det_ctx->bj_values);
 
+    /* HHD temp storage */
+    for (i = 0; i < det_ctx->hhd_buffers_size; i++) {
+        if (det_ctx->hhd_buffers[i] != NULL)
+            SCFree(det_ctx->hhd_buffers[i]);
+    }
+    if (det_ctx->hhd_buffers)
+        SCFree(det_ctx->hhd_buffers);
+    det_ctx->hhd_buffers = NULL;
+    if (det_ctx->hhd_buffers_len)
+        SCFree(det_ctx->hhd_buffers_len);
+    det_ctx->hhd_buffers_len = NULL;
+
+    /* HSBD */
     if (det_ctx->hsbd != NULL) {
-        SCLogDebug("det_ctx hsbd %u", det_ctx->hsbd_buffers_list_len);
-        for (i = 0; i < det_ctx->hsbd_buffers_list_len; i++) {
+        SCLogDebug("det_ctx hsbd %u", det_ctx->hsbd_buffers_size);
+        for (i = 0; i < det_ctx->hsbd_buffers_size; i++) {
             if (det_ctx->hsbd[i].buffer != NULL)
                 SCFree(det_ctx->hsbd[i].buffer);
         }
         SCFree(det_ctx->hsbd);
     }
 
+    /* HSCB */
     if (det_ctx->hcbd != NULL) {
-        SCLogDebug("det_ctx hcbd %u", det_ctx->hcbd_buffers_list_len);
-        for (i = 0; i < det_ctx->hcbd_buffers_list_len; i++) {
+        SCLogDebug("det_ctx hcbd %u", det_ctx->hcbd_buffers_size);
+        for (i = 0; i < det_ctx->hcbd_buffers_size; i++) {
             if (det_ctx->hcbd[i].buffer != NULL)
                 SCFree(det_ctx->hcbd[i].buffer);
             SCLogDebug("det_ctx->hcbd[i].buffer_size %u", det_ctx->hcbd[i].buffer_size);

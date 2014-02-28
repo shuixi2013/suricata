@@ -583,7 +583,8 @@ void StreamTcpInitConfig(char quiet)
     } else {
         enable_raw = 1;
     }
-    SCLogInfo("stream.reassembly.raw: %s", enable_raw ? "enabled" : "disabled");
+    if (!quiet)
+        SCLogInfo("stream.reassembly.raw: %s", enable_raw ? "enabled" : "disabled");
 
     /* init the memcap/use tracking */
     SC_ATOMIC_INIT(st_memuse);
@@ -4534,7 +4535,7 @@ TmEcode StreamTcpThreadInit(ThreadVars *tv, void *initdata, void **data)
                                                         "NULL");
 
     /* init reassembly ctx */
-    stt->ra_ctx = StreamTcpReassembleInitThreadCtx();
+    stt->ra_ctx = StreamTcpReassembleInitThreadCtx(tv);
     if (stt->ra_ctx == NULL)
         SCReturnInt(TM_ECODE_FAILED);
 
@@ -5394,7 +5395,7 @@ void StreamTcpPseudoPacketCreateStreamEndPacket(Packet *p, TcpSession *ssn, Pack
  * \return -1 in case of error, the number of segment in case of success
  *
  */
-int StreamTcpSegmentForEach(Packet *p, uint8_t flag, StreamSegmentCallback CallbackFunc, void *data)
+int StreamTcpSegmentForEach(const Packet *p, uint8_t flag, StreamSegmentCallback CallbackFunc, void *data)
 {
     TcpSession *ssn = NULL;
     TcpStream *stream = NULL;
@@ -7817,7 +7818,7 @@ static int StreamTcpTest23(void)
     TcpSession ssn;
     Flow f;
     TCPHdr tcph;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     uint8_t packet[1460] = "";
     ThreadVars tv;
     int result = 1;
@@ -7909,7 +7910,7 @@ static int StreamTcpTest24(void)
         return 0;
     Flow f;
     TCPHdr tcph;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     uint8_t packet[1460] = "";
     ThreadVars tv;
     int result = 1;
@@ -8001,7 +8002,7 @@ static int StreamTcpTest25(void) {
     StreamTcpThread stt;
     uint8_t payload[4];
     TCPHdr tcph;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     int ret = 0;
     PacketQueue pq;
     memset(&pq,0,sizeof(PacketQueue));
@@ -8100,7 +8101,7 @@ static int StreamTcpTest26(void) {
     StreamTcpThread stt;
     uint8_t payload[4];
     TCPHdr tcph;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     int ret = 0;
     PacketQueue pq;
     memset(&pq,0,sizeof(PacketQueue));
@@ -8195,7 +8196,7 @@ static int StreamTcpTest27(void) {
     StreamTcpThread stt;
     uint8_t payload[4];
     TCPHdr tcph;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     int ret = 0;
     PacketQueue pq;
     memset(&pq,0,sizeof(PacketQueue));
@@ -8336,7 +8337,7 @@ static int StreamTcpTest29(void)
     TCPHdr tcph;
     TcpSession ssn;
     IPV4Hdr ipv4h;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     struct in_addr addr;
     struct in_addr addr1;
     TCPCache tcpc;
@@ -8474,7 +8475,7 @@ static int StreamTcpTest30(void)
     TCPHdr tcph;
     TcpSession ssn;
     IPV4Hdr ipv4h;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     struct in_addr addr;
     struct in_addr addr1;
     TCPCache tcpc;
@@ -8615,7 +8616,7 @@ static int StreamTcpTest31(void)
     TCPHdr tcph;
     TcpSession ssn;
     IPV4Hdr ipv4h;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     struct in_addr addr;
     struct in_addr addr1;
     TCPCache tcpc;
@@ -8770,7 +8771,7 @@ static int StreamTcpTest32(void) {
     StreamTcpThread stt;
     uint8_t payload[4];
     TCPHdr tcph;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     int ret = 0;
     PacketQueue pq;
     memset(&pq,0,sizeof(PacketQueue));
@@ -9089,7 +9090,7 @@ static int StreamTcpTest36(void) {
     StreamTcpThread stt;
     uint8_t payload[4];
     TCPHdr tcph;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     int ret = 0;
     PacketQueue pq;
     memset(&pq,0,sizeof(PacketQueue));
@@ -9181,7 +9182,7 @@ static int StreamTcpTest37(void) {
     StreamTcpThread stt;
     uint8_t payload[4];
     TCPHdr tcph;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     int ret = 0;
     PacketQueue pq;
     memset(&pq,0,sizeof(PacketQueue));

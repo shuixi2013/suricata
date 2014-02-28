@@ -28,6 +28,7 @@
 #include "tm-threads.h"
 #include "util-debug.h"
 #include "threads.h"
+#include "util-logopenfile.h"
 
 void TmModuleDebugList(void) {
     TmModule *t;
@@ -46,7 +47,7 @@ void TmModuleDebugList(void) {
 /** \brief get a tm module ptr by name
  *  \param name name string
  *  \retval ptr to the module or NULL */
-TmModule *TmModuleGetByName(char *name) {
+TmModule *TmModuleGetByName(const char *name) {
     TmModule *t;
     uint16_t i;
 
@@ -61,6 +62,16 @@ TmModule *TmModuleGetByName(char *name) {
     }
 
     return NULL;
+}
+
+/** \brief get the id of a module from it's name
+ *  \param name registered name of the module
+ *  \retval id the id or -1 in case of error */
+int TmModuleGetIdByName(const char *name) {
+    TmModule *tm = TmModuleGetByName(name);
+    if (tm == NULL)
+        return -1;;
+    return TmModuleGetIDForTM(tm);
 }
 
 /**
@@ -108,53 +119,6 @@ int TmModuleGetIDForTM(TmModule *tm)
     return -1;
 }
 
-/** \brief LogFileNewCtx() Get a new LogFileCtx
- *  \retval LogFileCtx * pointer if succesful, NULL if error
- *  */
-LogFileCtx *LogFileNewCtx()
-{
-    LogFileCtx* lf_ctx;
-    lf_ctx=(LogFileCtx*)SCMalloc(sizeof(LogFileCtx));
-
-    if(lf_ctx == NULL)
-        return NULL;
-    memset(lf_ctx, 0, sizeof(LogFileCtx));
-
-    SCMutexInit(&lf_ctx->fp_mutex,NULL);
-
-    return lf_ctx;
-}
-
-/** \brief LogFileFreeCtx() Destroy a LogFileCtx (Close the file and free memory)
- *  \param motcx pointer to the OutputCtx
- *  \retval int 1 if succesful, 0 if error
- *  */
-int LogFileFreeCtx(LogFileCtx *lf_ctx)
-{
-    if (lf_ctx == NULL) {
-        SCReturnInt(0);
-    }
-
-    if (lf_ctx->fp != NULL)
-    {
-        SCMutexLock(&lf_ctx->fp_mutex);
-        fflush(lf_ctx->fp);
-        fclose(lf_ctx->fp);
-        SCMutexUnlock(&lf_ctx->fp_mutex);
-    }
-
-    SCMutexDestroy(&lf_ctx->fp_mutex);
-
-    if (lf_ctx->prefix != NULL)
-        SCFree(lf_ctx->prefix);
-
-    if(lf_ctx->filename != NULL)
-        SCFree(lf_ctx->filename);
-
-    SCFree(lf_ctx);
-
-    SCReturnInt(1);
-}
 
 void TmModuleRunInit(void) {
     TmModule *t;
@@ -268,13 +232,26 @@ const char * TmModuleTmmIdToString(TmmId id)
         CASE_CODE (TMM_DECODEERFFILE);
         CASE_CODE (TMM_RECEIVEERFDAG);
         CASE_CODE (TMM_DECODEERFDAG);
+        CASE_CODE (TMM_RECEIVEMPIPE);
+        CASE_CODE (TMM_DECODEMPIPE);
         CASE_CODE (TMM_RECEIVENAPATECH);
         CASE_CODE (TMM_DECODENAPATECH);
         CASE_CODE (TMM_RECEIVEAFP);
         CASE_CODE (TMM_ALERTPCAPINFO);
         CASE_CODE (TMM_DECODEAFP);
+        CASE_CODE (TMM_PACKETLOGGER);
+        CASE_CODE (TMM_TXLOGGER);
+        CASE_CODE (TMM_FILELOGGER);
+        CASE_CODE (TMM_FILEDATALOGGER);
+        CASE_CODE (TMM_JSONALERTLOG);
+        CASE_CODE (TMM_JSONDROPLOG);
+        CASE_CODE (TMM_JSONDNSLOG);
+        CASE_CODE (TMM_JSONHTTPLOG);
+        CASE_CODE (TMM_JSONFILELOG);
+        CASE_CODE (TMM_JSONTLSLOG);
+        CASE_CODE (TMM_OUTPUTJSON);
 
-        default:
-            return "UNKNOWN";
+        CASE_CODE (TMM_SIZE);
     }
+    return "<unknown>";
 }

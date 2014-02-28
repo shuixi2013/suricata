@@ -56,7 +56,7 @@ typedef struct StreamMsgQueue_ {
 } StreamMsgQueue;
 
 /* prototypes */
-void StreamMsgQueuesInit(void);
+void StreamMsgQueuesInit(uint32_t prealloc);
 void StreamMsgQueuesDeinit(char);
 
 StreamMsg *StreamMsgGetFromPool(void);
@@ -73,8 +73,8 @@ uint16_t StreamMsgQueueGetMinChunkLen(uint8_t);
 
 void StreamMsgReturnListToPool(void *);
 
-typedef int (*StreamSegmentCallback)(Packet *, void *, uint8_t *, uint32_t);
-int StreamSegmentForEach(Packet *p, uint8_t flag,
+typedef int (*StreamSegmentCallback)(const Packet *, void *, uint8_t *, uint32_t);
+int StreamSegmentForEach(const Packet *p, uint8_t flag,
                       StreamSegmentCallback CallbackFunc,
                       void *data);
 

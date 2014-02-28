@@ -309,8 +309,10 @@ static uint16_t DNSUdpProbingParser(uint8_t *input, uint32_t ilen, uint32_t *off
 
 static void DNSUDPConfigure(void) {
     uint32_t request_flood = DNS_CONFIG_DEFAULT_REQUEST_FLOOD;
+    uint32_t state_memcap = DNS_CONFIG_DEFAULT_STATE_MEMCAP;
+    uint64_t global_memcap = DNS_CONFIG_DEFAULT_GLOBAL_MEMCAP;
 
-    ConfNode *p = ConfGetNode("app-layer.protocols.dnsudp.request-flood");
+    ConfNode *p = ConfGetNode("app-layer.protocols.dns.request-flood");
     if (p != NULL) {
         uint32_t value;
         if (ParseSizeStringU32(p->val, &value) < 0) {
@@ -321,6 +323,30 @@ static void DNSUDPConfigure(void) {
     }
     SCLogInfo("DNS request flood protection level: %u", request_flood);
     DNSConfigSetRequestFlood(request_flood);
+
+    p = ConfGetNode("app-layer.protocols.dns.state-memcap");
+    if (p != NULL) {
+        uint32_t value;
+        if (ParseSizeStringU32(p->val, &value) < 0) {
+            SCLogError(SC_ERR_DNS_CONFIG, "invalid value for state-memcap %s", p->val);
+        } else {
+            state_memcap = value;
+        }
+    }
+    SCLogInfo("DNS per flow memcap (state-memcap): %u", state_memcap);
+    DNSConfigSetStateMemcap(state_memcap);
+
+    p = ConfGetNode("app-layer.protocols.dns.global-memcap");
+    if (p != NULL) {
+        uint64_t value;
+        if (ParseSizeStringU64(p->val, &value) < 0) {
+            SCLogError(SC_ERR_DNS_CONFIG, "invalid value for global-memcap %s", p->val);
+        } else {
+            global_memcap = value;
+        }
+    }
+    SCLogInfo("DNS global memcap: %"PRIu64, global_memcap);
+    DNSConfigSetGlobalMemcap(global_memcap);
 }
 
 void RegisterDNSUDPParsers(void) {
@@ -338,10 +364,19 @@ void RegisterDNSUDPParsers(void) {
                                           STREAM_TOSERVER,
                                           DNSUdpProbingParser);
         } else {
-            AppLayerProtoDetectPPParseConfPorts("udp", IPPROTO_UDP,
+            int have_cfg = AppLayerProtoDetectPPParseConfPorts("udp", IPPROTO_UDP,
                                                 proto_name, ALPROTO_DNS,
                                                 0, sizeof(DNSHeader),
                                                 DNSUdpProbingParser);
+            /* if we have no config, we enable the default port 53 */
+            if (!have_cfg) {
+                SCLogWarning(SC_ERR_DNS_CONFIG, "no DNS UDP config found, "
+                                                "enabling DNS detection on "
+                                                "port 53.");
+                AppLayerProtoDetectPPRegister(IPPROTO_UDP, "53",
+                                   ALPROTO_DNS, 0, sizeof(DNSHeader),
+                                   STREAM_TOSERVER, DNSUdpProbingParser);
+            }
         }
     } else {
         SCLogInfo("Protocol detection and parser disabled for %s protocol.",
@@ -349,7 +384,7 @@ void RegisterDNSUDPParsers(void) {
         return;
     }
 
-    if (AppLayerParserConfParserEnabled("tcp", proto_name)) {
+    if (AppLayerParserConfParserEnabled("udp", proto_name)) {
         AppLayerParserRegisterParser(IPPROTO_UDP, ALPROTO_DNS, STREAM_TOSERVER,
                                      DNSUDPRequestParse);
         AppLayerParserRegisterParser(IPPROTO_UDP, ALPROTO_DNS, STREAM_TOCLIENT,

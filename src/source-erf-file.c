@@ -252,7 +252,7 @@ DecodeErfFileThreadInit(ThreadVars *tv, void *initdata, void **data)
 {
     SCEnter();
     DecodeThreadVars *dtv = NULL;
-    dtv = DecodeThreadVarsAlloc();
+    dtv = DecodeThreadVarsAlloc(tv);
 
     if (dtv == NULL)
         SCReturnInt(TM_ECODE_FAILED);
@@ -275,6 +275,11 @@ DecodeErfFile(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQueu
 {
     SCEnter();
     DecodeThreadVars *dtv = (DecodeThreadVars *)data;
+
+    /* XXX HACK: flow timeout can call us for injected pseudo packets
+     *           see bug: https://redmine.openinfosecfoundation.org/issues/1107 */
+    if (p->flags & PKT_PSEUDO_STREAM_END)
+        return TM_ECODE_OK;
 
     /* Update counters. */
     SCPerfCounterIncr(dtv->counter_pkts, tv->sc_perf_pca);

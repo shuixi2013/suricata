@@ -82,6 +82,29 @@ outputs:
       append: yes
       #filetype: regular # 'regular', 'unix_stream' or 'unix_dgram'
 
+  # "United" event log in JSON format
+  - eve-log:
+      enabled: no
+      type: file #file|syslog|unix_dgram|unix_stream
+      filename: eve.json
+      # the following are valid when type: syslog above
+      #identity: "suricata"
+      #facility: local5
+      #level: Info ## possible levels: Emergency, Alert, Critical,
+                   ## Error, Warning, Notice, Info, Debug
+      types:
+        - alert
+        - http:
+            extended: yes     # enable this for extended logging information
+        - dns
+        - tls:
+            extended: yes     # enable this for extended logging information
+        - files:
+            force-magic: no   # force logging magic on all logged files
+            force-md5: no     # force logging of md5 checksums
+        #- drop
+        #- ssh
+
   # alert output for use with Barnyard2
   - unified2-alert:
       enabled: yes
@@ -659,7 +682,18 @@ flow-timeouts:
 #                               # a random value between (1 - randomize-chunk-range/100)*randomize-chunk-size
 #                               # and (1 + randomize-chunk-range/100)*randomize-chunk-size. Default value
 #                               # of randomize-chunk-range is 10.
-
+#
+#     raw: yes                  # 'Raw' reassembly enabled or disabled.
+#                               # raw is for content inspection by detection
+#                               # engine.
+#
+#     chunk-prealloc: 250       # Number of preallocated stream chunks. These
+#                               # are used during stream inspection (raw).
+#     segments:                 # Settings for reassembly segment pool.
+#       - size: 4               # Size of the (data)segment for a pool
+#         prealloc: 256         # Number of segments to prealloc and keep
+#                               # in the pool.
+#
 stream:
   memcap: 32mb
   checksum-validation: yes      # reject wrong csums
@@ -671,6 +705,25 @@ stream:
     toclient-chunk-size: 2560
     randomize-chunk-size: yes
     #randomize-chunk-range: 10
+    #raw: yes
+    #chunk-prealloc: 250
+    #segments:
+    #  - size: 4
+    #    prealloc: 256
+    #  - size: 16
+    #    prealloc: 512
+    #  - size: 112
+    #    prealloc: 512
+    #  - size: 248
+    #    prealloc: 512
+    #  - size: 512
+    #    prealloc: 512
+    #  - size: 768
+    #    prealloc: 1024
+    #  - size: 1448
+    #    prealloc: 1024
+    #  - size: 65535
+    #    prealloc: 128
 
 # Host table:
 #
@@ -1045,6 +1098,14 @@ app-layer:
     #smb2:
     #  enabled: yes
     dns:
+      # memcaps. Globally and per flow/state.
+      #global-memcap: 16mb
+      #state-memcap: 512kb
+
+      # How many unreplied DNS requests are considered a flood.
+      # If the limit is reached, app-layer-event:dns.flooded; will match.
+      #request-flood: 500
+
       tcp:
         enabled: yes
         detection-ports:
@@ -1165,6 +1226,10 @@ app-layer:
 # the --enable-profiling configure flag.
 #
 profiling:
+  # Run profiling for every xth packet. The default is 1, which means we
+  # profile every packet. If set to 1000, one packet is profiled for every
+  # 1000 received.
+  #sample-rate: 1000
 
   # rule profiling
   rules:

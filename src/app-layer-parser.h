@@ -25,7 +25,7 @@
 #ifndef __APP_LAYER_PARSER_H__
 #define __APP_LAYER_PARSER_H__
 
-#include "decode-events.h"
+#include "app-layer-events.h"
 #include "util-file.h"
 
 #define APP_LAYER_PARSER_EOF            0x01
@@ -53,6 +53,13 @@ void RegisterAppLayerGetActiveTxIdFunc(GetActiveTxIdFunc FuncPtr);
  *  This is the default function.
  */
 uint64_t AppLayerTransactionGetActiveDetectLog(Flow *f, uint8_t flags);
+
+/** \brief active TX retrieval for logging only ops
+ *
+ *  \retval tx_id lowest tx_id that still needs work
+ */
+uint64_t AppLayerTransactionGetActiveLogOnly(Flow *f, uint8_t flags);
+
 
 int AppLayerParserSetup(void);
 
@@ -178,6 +185,7 @@ int AppLayerParserHasDecoderEvents(uint8_t ipproto, AppProto alproto, void *alst
 int AppLayerParserProtocolIsTxAware(uint8_t ipproto, AppProto alproto);
 int AppLayerParserProtocolIsTxEventAware(uint8_t ipproto, AppProto alproto);
 int AppLayerParserProtocolSupportsTxs(uint8_t ipproto, AppProto alproto);
+int AppLayerParserProtocolHasLogger(uint8_t ipproto, AppProto alproto);
 void AppLayerParserTriggerRawStreamReassembly(Flow *f);
 
 /***** Cleanup *****/

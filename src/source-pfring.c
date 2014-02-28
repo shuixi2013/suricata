@@ -132,7 +132,7 @@ typedef struct PfringThreadVars_
 
     /* counters */
     uint64_t bytes;
-    uint32_t pkts;
+    uint64_t pkts;
 
     uint16_t capture_kernel_packets;
     uint16_t capture_kernel_drops;
@@ -525,7 +525,7 @@ void ReceivePfringThreadExitStats(ThreadVars *tv, void *data) {
             tv->name,
             (uint64_t) SCPerfGetLocalCounterValue(ptv->capture_kernel_packets, tv->sc_perf_pca),
             (uint64_t) SCPerfGetLocalCounterValue(ptv->capture_kernel_drops, tv->sc_perf_pca));
-    SCLogInfo("(%s) Packets %" PRIu32 ", bytes %" PRIu64 "", tv->name, ptv->pkts, ptv->bytes);
+    SCLogInfo("(%s) Packets %" PRIu64 ", bytes %" PRIu64 "", tv->name, ptv->pkts, ptv->bytes);
 }
 
 /**
@@ -570,6 +570,11 @@ TmEcode DecodePfring(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Pac
 {
     DecodeThreadVars *dtv = (DecodeThreadVars *)data;
 
+    /* XXX HACK: flow timeout can call us for injected pseudo packets
+     *           see bug: https://redmine.openinfosecfoundation.org/issues/1107 */
+    if (p->flags & PKT_PSEUDO_STREAM_END)
+        return TM_ECODE_OK;
+
     /* update counters */
     SCPerfCounterIncr(dtv->counter_pkts, tv->sc_perf_pca);
 //    SCPerfCounterIncr(dtv->counter_pkts_per_sec, tv->sc_perf_pca);
@@ -604,7 +609,7 @@ TmEcode DecodePfringThreadInit(ThreadVars *tv, void *initdata, void **data)
 {
     DecodeThreadVars *dtv = NULL;
 
-    dtv = DecodeThreadVarsAlloc();
+    dtv = DecodeThreadVarsAlloc(tv);
 
     if (dtv == NULL)
         SCReturnInt(TM_ECODE_FAILED);

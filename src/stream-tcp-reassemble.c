@@ -32,6 +32,7 @@
 #include "detect.h"
 #include "flow.h"
 #include "threads.h"
+#include "conf.h"
 
 #include "flow-util.h"
 
@@ -43,6 +44,7 @@
 #include "util-print.h"
 #include "util-host-os-info.h"
 #include "util-unittest-helper.h"
+#include "util-byte.h"
 
 #include "stream-tcp.h"
 #include "stream-tcp-private.h"
@@ -55,6 +57,7 @@
 #include "util-debug.h"
 #include "app-layer-protos.h"
 #include "app-layer.h"
+#include "app-layer-events.h"
 
 #include "detect-engine-state.h"
 
@@ -71,21 +74,12 @@ static uint64_t segment_pool_memcnt = 0;
 /* We define several pools with prealloced segments with fixed size
  * payloads. We do this to prevent having to do an SCMalloc call for every
  * data segment we receive, which would be a large performance penalty.
- * The cost is in memory of course. */
-#define segment_pool_num 8
-static uint16_t segment_pool_pktsizes[segment_pool_num] = {4, 16, 112, 248, 512,
-                                                           768, 1448, 0xffff};
-//static uint16_t segment_pool_poolsizes[segment_pool_num] = {2048, 3072, 3072,
-//                                                            3072, 3072, 8192,
-//                                                            8192, 512};
-static uint16_t segment_pool_poolsizes[segment_pool_num] = {0, 0, 0,
-                                                            0, 0, 0,
-                                                            0, 0};
-static uint16_t segment_pool_poolsizes_prealloc[segment_pool_num] = {256, 512, 512,
-                                                            512, 512, 1024,
-                                                            1024, 128};
-static Pool *segment_pool[segment_pool_num];
-static SCMutex segment_pool_mutex[segment_pool_num];
+ * The cost is in memory of course. The number of pools and the properties
+ * of the pools are determined by the yaml. */
+static int segment_pool_num = 0;
+static Pool **segment_pool = NULL;
+static SCMutex *segment_pool_mutex = NULL;
+static uint16_t *segment_pool_pktsizes = NULL;
 #ifdef DEBUG
 static SCMutex segment_pool_cnt_mutex;
 static uint64_t segment_pool_cnt = 0;
@@ -154,7 +148,8 @@ void StreamTcpReassembleMemuseCounter(ThreadVars *tv, TcpReassemblyThreadCtx *rt
  * \retval 0 if not in bounds
  */
 int StreamTcpReassembleCheckMemcap(uint32_t size) {
-    if (stream_config.reassembly_memcap == 0 || size + SC_ATOMIC_GET(ra_memuse) <= stream_config.reassembly_memcap)
+    if (stream_config.reassembly_memcap == 0 ||
+            (uint64_t)((uint64_t)size + SC_ATOMIC_GET(ra_memuse)) <= stream_config.reassembly_memcap)
         return 1;
     return 0;
 }
@@ -162,8 +157,7 @@ int StreamTcpReassembleCheckMemcap(uint32_t size) {
 /** \brief alloc a tcp segment pool entry */
 void *TcpSegmentPoolAlloc()
 {
-    if (StreamTcpReassembleCheckMemcap((uint32_t)sizeof(TcpSegment)) == 0)
-    {
+    if (StreamTcpReassembleCheckMemcap((uint32_t)sizeof(TcpSegment)) == 0) {
         return NULL;
     }
 
@@ -178,15 +172,21 @@ void *TcpSegmentPoolAlloc()
 int TcpSegmentPoolInit(void *data, void *payload_len)
 {
     TcpSegment *seg = (TcpSegment *) data;
+    uint16_t size = *((uint16_t *) payload_len);
 
+    /* do this before the can bail, so TcpSegmentPoolCleanup
+     * won't have uninitialized memory to consider. */
     memset(seg, 0, sizeof (TcpSegment));
 
-    seg->pool_size = *((uint16_t *) payload_len);
+    if (StreamTcpReassembleCheckMemcap((uint32_t)size + (uint32_t)sizeof(TcpSegment)) == 0) {
+        return 0;
+    }
+
+    seg->pool_size = size;
     seg->payload_len = seg->pool_size;
 
     seg->payload = SCMalloc(seg->payload_len);
     if (seg->payload == NULL) {
-        SCFree(seg);
         return 0;
     }
 
@@ -239,8 +239,8 @@ void StreamTcpSegmentReturntoPool(TcpSegment *seg)
     uint16_t idx = segment_pool_idx[seg->pool_size];
     SCMutexLock(&segment_pool_mutex[idx]);
     PoolReturn(segment_pool[idx], (void *) seg);
-    SCLogDebug("segment_pool[%"PRIu16"]->empty_list_size %"PRIu32"",
-               idx,segment_pool[idx]->empty_list_size);
+    SCLogDebug("segment_pool[%"PRIu16"]->empty_stack_size %"PRIu32"",
+               idx,segment_pool[idx]->empty_stack_size);
     SCMutexUnlock(&segment_pool_mutex[idx]);
 
 #ifdef DEBUG
@@ -273,36 +273,164 @@ void StreamTcpReturnStreamSegments (TcpStream *stream)
     stream->seg_list_tail = NULL;
 }
 
-int StreamTcpReassembleInit(char quiet)
+typedef struct SegmentSizes_
 {
-    StreamMsgQueuesInit();
+    uint16_t pktsize;
+    uint32_t prealloc;
+} SegmentSizes;
 
-    /* init the memcap/use tracker */
-    SC_ATOMIC_INIT(ra_memuse);
+/* sort small to big */
+static int SortByPktsize(const void *a, const void *b)
+{
+    const SegmentSizes *s0 = a;
+    const SegmentSizes *s1 = b;
+    return s0->pktsize - s1->pktsize;
+}
 
-#ifdef DEBUG
-    SCMutexInit(&segment_pool_memuse_mutex, NULL);
-#endif
-    uint16_t u16 = 0;
-    for (u16 = 0; u16 < segment_pool_num; u16++)
-    {
-        SCMutexInit(&segment_pool_mutex[u16], NULL);
-        SCMutexLock(&segment_pool_mutex[u16]);
-        segment_pool[u16] = PoolInit(segment_pool_poolsizes[u16],
-                                     segment_pool_poolsizes_prealloc[u16],
-                                     sizeof (TcpSegment),
-                                     TcpSegmentPoolAlloc, TcpSegmentPoolInit,
-                                     (void *) &segment_pool_pktsizes[u16],
-                                     TcpSegmentPoolCleanup, NULL);
-        SCMutexUnlock(&segment_pool_mutex[u16]);
+int StreamTcpReassemblyConfig(char quiet)
+{
+    Pool **my_segment_pool = NULL;
+    SCMutex *my_segment_lock = NULL;
+    uint16_t *my_segment_pktsizes = NULL;
+    SegmentSizes sizes[256];
+    memset(&sizes, 0x00, sizeof(sizes));
+
+    int npools = 0;
+    ConfNode *segs = ConfGetNode("stream.reassembly.segments");
+    if (segs != NULL) {
+        ConfNode *seg;
+        TAILQ_FOREACH(seg, &segs->head, next) {
+            ConfNode *segsize = ConfNodeLookupChild(seg,"size");
+            if (segsize == NULL)
+                continue;
+            ConfNode *segpre = ConfNodeLookupChild(seg,"prealloc");
+            if (segpre == NULL)
+                continue;
+
+            if (npools >= 256) {
+                SCLogError(SC_ERR_INVALID_ARGUMENT, "too many segment packet "
+                                                    "pools defined, max is 256");
+                return -1;
+            }
+
+            SCLogDebug("segsize->val %s", segsize->val);
+            SCLogDebug("segpre->val %s", segpre->val);
+
+            uint16_t pktsize = 0;
+            if (ByteExtractStringUint16(&pktsize, 10, strlen(segsize->val),
+                                        segsize->val) == -1)
+            {
+                SCLogError(SC_ERR_INVALID_ARGUMENT, "segment packet size "
+                                                    "of %s is invalid", segsize->val);
+                return -1;
+            }
+            uint32_t prealloc = 0;
+            if (ByteExtractStringUint32(&prealloc, 10, strlen(segpre->val),
+                                        segpre->val) == -1)
+            {
+                SCLogError(SC_ERR_INVALID_ARGUMENT, "segment prealloc of "
+                                                    "%s is invalid", segpre->val);
+                return -1;
+            }
+
+            sizes[npools].pktsize = pktsize;
+            sizes[npools].prealloc = prealloc;
+            SCLogDebug("pktsize %u, prealloc %u", sizes[npools].pktsize,
+                                                  sizes[npools].prealloc);
+            npools++;
+        }
+    }
+
+    SCLogDebug("npools %d", npools);
+    if (npools > 0) {
+        /* sort the array as the index code below relies on it */
+        qsort(&sizes, npools, sizeof(sizes[0]), SortByPktsize);
+        if (sizes[npools - 1].pktsize != 0xffff) {
+            sizes[npools].pktsize = 0xffff;
+            sizes[npools].prealloc = 8;
+            npools++;
+            SCLogInfo("appended a segment pool for pktsize 65536");
+        }
+    } else if (npools == 0) {
+        /* defaults */
+        sizes[0].pktsize = 4;
+        sizes[0].prealloc = 256;
+        sizes[1].pktsize = 16;
+        sizes[1].prealloc = 512;
+        sizes[2].pktsize = 112;
+        sizes[2].prealloc = 512;
+        sizes[3].pktsize = 248;
+        sizes[3].prealloc = 512;
+        sizes[4].pktsize = 512;
+        sizes[4].prealloc = 512;
+        sizes[5].pktsize = 768;
+        sizes[5].prealloc = 1024;
+        sizes[6].pktsize = 1448;
+        sizes[6].prealloc = 1024;
+        sizes[7].pktsize = 0xffff;
+        sizes[7].prealloc = 128;
+        npools = 8;
+    }
+
+    int i = 0;
+    for (i = 0; i < npools; i++) {
+        SCLogDebug("pktsize %u, prealloc %u", sizes[i].pktsize, sizes[i].prealloc);
+    }
+
+    my_segment_pool = SCMalloc(npools * sizeof(Pool *));
+    if (my_segment_pool == NULL) {
+        SCLogError(SC_ERR_MEM_ALLOC, "malloc failed");
+        return -1;
+    }
+    my_segment_lock = SCMalloc(npools * sizeof(SCMutex));
+    if (my_segment_lock == NULL) {
+        SCLogError(SC_ERR_MEM_ALLOC, "malloc failed");
+
+        SCFree(my_segment_pool);
+        return -1;
+    }
+    my_segment_pktsizes = SCMalloc(npools * sizeof(uint16_t));
+    if (my_segment_pktsizes == NULL) {
+        SCLogError(SC_ERR_MEM_ALLOC, "malloc failed");
+
+        SCFree(my_segment_lock);
+        SCFree(my_segment_pool);
+        return -1;
+    }
+    uint32_t my_segment_poolsizes[npools];
+
+    for (i = 0; i < npools; i++) {
+        my_segment_pktsizes[i] = sizes[i].pktsize;
+        my_segment_poolsizes[i] = sizes[i].prealloc;
+        SCMutexInit(&my_segment_lock[i], NULL);
+
+        /* setup the pool */
+        SCMutexLock(&my_segment_lock[i]);
+        my_segment_pool[i] = PoolInit(0, my_segment_poolsizes[i], 0,
+                TcpSegmentPoolAlloc, TcpSegmentPoolInit,
+                (void *) &my_segment_pktsizes[i],
+                TcpSegmentPoolCleanup, NULL);
+        SCMutexUnlock(&my_segment_lock[i]);
+
+        if (my_segment_pool[i] == NULL) {
+            SCLogError(SC_ERR_INITIALIZATION, "couldn't set up segment pool "
+                    "for packet size %u. Memcap too low?", my_segment_pktsizes[i]);
+            exit(EXIT_FAILURE);
+        }
+
+        SCLogDebug("my_segment_pktsizes[i] %u, my_segment_poolsizes[i] %u",
+                my_segment_pktsizes[i], my_segment_poolsizes[i]);
+        if (!quiet)
+            SCLogInfo("segment pool: pktsize %u, prealloc %u",
+                    my_segment_pktsizes[i], my_segment_poolsizes[i]);
     }
 
     uint16_t idx = 0;
-    u16 = 0;
+    uint16_t u16 = 0;
     while (1) {
-        if (idx <= segment_pool_pktsizes[u16]) {
+        if (idx <= my_segment_pktsizes[u16]) {
             segment_pool_idx[idx] = u16;
-            if (segment_pool_pktsizes[u16] == idx)
+            if (my_segment_pktsizes[u16] == idx)
                 u16++;
         }
 
@@ -311,7 +439,39 @@ int StreamTcpReassembleInit(char quiet)
 
         idx++;
     }
+    /* set the globals */
+    segment_pool = my_segment_pool;
+    segment_pool_mutex = my_segment_lock;
+    segment_pool_pktsizes = my_segment_pktsizes;
+    segment_pool_num = npools;
+
+    uint32_t stream_chunk_prealloc = 250;
+    ConfNode *chunk = ConfGetNode("stream.reassembly.chunk-prealloc");
+    if (chunk) {
+        uint32_t prealloc = 0;
+        if (ByteExtractStringUint32(&prealloc, 10, strlen(chunk->val), chunk->val) == -1)
+        {
+            SCLogError(SC_ERR_INVALID_ARGUMENT, "chunk-prealloc of "
+                    "%s is invalid", chunk->val);
+            return -1;
+        }
+        stream_chunk_prealloc = prealloc;
+    }
+    if (!quiet)
+        SCLogInfo("stream.reassembly \"chunk-prealloc\": %u", stream_chunk_prealloc);
+    StreamMsgQueuesInit(stream_chunk_prealloc);
+    return 0;
+}
+
+int StreamTcpReassembleInit(char quiet)
+{
+    /* init the memcap/use tracker */
+    SC_ATOMIC_INIT(ra_memuse);
+
+    if (StreamTcpReassemblyConfig(quiet) < 0)
+        return -1;
 #ifdef DEBUG
+    SCMutexInit(&segment_pool_memuse_mutex, NULL);
     SCMutexInit(&segment_pool_cnt_mutex, NULL);
 #endif
     return 0;
@@ -330,17 +490,29 @@ void StreamTcpReassembleFree(char quiet)
 
         if (quiet == FALSE) {
             PoolPrintSaturation(segment_pool[u16]);
-            SCLogDebug("segment_pool[u16]->empty_list_size %"PRIu32", "
-                       "segment_pool[u16]->alloc_list_size %"PRIu32", alloced "
-                       "%"PRIu32"", segment_pool[u16]->empty_list_size,
-                       segment_pool[u16]->alloc_list_size,
+            SCLogDebug("segment_pool[u16]->empty_stack_size %"PRIu32", "
+                       "segment_pool[u16]->alloc_stack_size %"PRIu32", alloced "
+                       "%"PRIu32"", segment_pool[u16]->empty_stack_size,
+                       segment_pool[u16]->alloc_stack_size,
                        segment_pool[u16]->allocated);
+
+            if (segment_pool[u16]->max_outstanding > segment_pool[u16]->allocated) {
+                SCLogInfo("TCP segment pool of size %u had a peak use of %u segments, "
+                        "more than the prealloc setting of %u", segment_pool_pktsizes[u16],
+                        segment_pool[u16]->max_outstanding, segment_pool[u16]->allocated);
+            }
         }
         PoolFree(segment_pool[u16]);
 
         SCMutexUnlock(&segment_pool_mutex[u16]);
         SCMutexDestroy(&segment_pool_mutex[u16]);
     }
+    SCFree(segment_pool);
+    SCFree(segment_pool_mutex);
+    SCFree(segment_pool_pktsizes);
+    segment_pool = NULL;
+    segment_pool_mutex = NULL;
+    segment_pool_pktsizes = NULL;
 
     StreamMsgQueuesDeinit(quiet);
 
@@ -355,7 +527,7 @@ void StreamTcpReassembleFree(char quiet)
 #endif
 }
 
-TcpReassemblyThreadCtx *StreamTcpReassembleInitThreadCtx(void)
+TcpReassemblyThreadCtx *StreamTcpReassembleInitThreadCtx(ThreadVars *tv)
 {
     SCEnter();
     TcpReassemblyThreadCtx *ra_ctx = SCMalloc(sizeof(TcpReassemblyThreadCtx));
@@ -364,7 +536,7 @@ TcpReassemblyThreadCtx *StreamTcpReassembleInitThreadCtx(void)
 
     memset(ra_ctx, 0x00, sizeof(TcpReassemblyThreadCtx));
 
-    ra_ctx->app_tctx = AppLayerGetCtxThread();
+    ra_ctx->app_tctx = AppLayerGetCtxThread(tv);
 
     SCReturnPtr(ra_ctx, "TcpReassemblyThreadCtx");
 }
@@ -1714,7 +1886,7 @@ int StreamTcpReassembleHandleSegmentHandleData(ThreadVars *tv, TcpReassemblyThre
     if (stream->seg_list == NULL &&
         stream->flags & STREAMTCP_STREAM_FLAG_APPPROTO_DETECTION_SKIPPED) {
 
-        AppLayerDecoderEventsSetEventRaw(p->app_layer_events,
+        AppLayerDecoderEventsSetEventRaw(&p->app_layer_events,
                 APPLAYER_PROTO_DETECTION_SKIPPED);
     }
 
@@ -3595,16 +3767,16 @@ TcpSegment* StreamTcpGetSegment(ThreadVars *tv, TcpReassemblyThreadCtx *ra_ctx, 
     SCMutexLock(&segment_pool_mutex[idx]);
     TcpSegment *seg = (TcpSegment *) PoolGet(segment_pool[idx]);
 
-    SCLogDebug("segment_pool[%u]->empty_list_size %u, segment_pool[%u]->alloc_"
-               "list_size %u, alloc %u", idx, segment_pool[idx]->empty_list_size,
-               idx, segment_pool[idx]->alloc_list_size,
+    SCLogDebug("segment_pool[%u]->empty_stack_size %u, segment_pool[%u]->alloc_"
+               "list_size %u, alloc %u", idx, segment_pool[idx]->empty_stack_size,
+               idx, segment_pool[idx]->alloc_stack_size,
                segment_pool[idx]->allocated);
     SCMutexUnlock(&segment_pool_mutex[idx]);
 
     SCLogDebug("seg we return is %p", seg);
     if (seg == NULL) {
-        SCLogDebug("segment_pool[%u]->empty_list_size %u, "
-                   "alloc %u", idx, segment_pool[idx]->empty_list_size,
+        SCLogDebug("segment_pool[%u]->empty_stack_size %u, "
+                   "alloc %u", idx, segment_pool[idx]->empty_stack_size,
                    segment_pool[idx]->allocated);
         /* Increment the counter to show that we are not able to serve the
            segment request due to memcap limit */
@@ -3679,7 +3851,7 @@ static int StreamTcpReassembleStreamTest(TcpStream *stream) {
     Flow f;
     uint8_t payload[4];
     TCPHdr tcph;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
 
     /* prevent L7 from kicking in */
     StreamMsgQueueSetMinChunkLen(FLOW_PKT_TOSERVER, 4096);
@@ -4008,7 +4180,7 @@ static int StreamTcpTestStartsBeforeListSegment(TcpStream *stream) {
     Flow f;
     uint8_t payload[4];
     TCPHdr tcph;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
 
     /* prevent L7 from kicking in */
     StreamMsgQueueSetMinChunkLen(FLOW_PKT_TOSERVER, 4096);
@@ -4124,7 +4296,7 @@ static int StreamTcpTestStartsAtSameListSegment(TcpStream *stream) {
     Flow f;
     uint8_t payload[4];
     TCPHdr tcph;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     PacketQueue pq;
     memset(&pq,0,sizeof(PacketQueue));
 
@@ -4239,7 +4411,7 @@ static int StreamTcpTestStartsAfterListSegment(TcpStream *stream) {
     Flow f;
     uint8_t payload[4];
     TCPHdr tcph;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     PacketQueue pq;
     memset(&pq,0,sizeof(PacketQueue));
 
@@ -5035,7 +5207,7 @@ static int StreamTcpReassembleTest25 (void) {
     uint8_t flowflags;
     uint8_t check_contents[7] = {0x41, 0x41, 0x41, 0x42, 0x42, 0x43, 0x43};
 
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     memset(&ssn, 0, sizeof (TcpSession));
 
     flowflags = FLOW_PKT_TOSERVER;
@@ -5098,7 +5270,7 @@ static int StreamTcpReassembleTest26 (void) {
     ack = 20;
     StreamTcpInitConfig(TRUE);
 
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
 
     StreamTcpCreateTestPacket(payload, 0x41, 3, 4); /*AAA*/
     seq = 10;
@@ -5155,7 +5327,7 @@ static int StreamTcpReassembleTest27 (void) {
     ack = 20;
     StreamTcpInitConfig(TRUE);
 
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
 
     StreamTcpCreateTestPacket(payload, 0x41, 3, 4); /*AAA*/
     seq = 10;
@@ -5209,7 +5381,7 @@ static int StreamTcpReassembleTest28 (void) {
     uint8_t check_contents[5] = {0x41, 0x41, 0x42, 0x42, 0x42};
     TcpSession ssn;
     memset(&ssn, 0, sizeof (TcpSession));
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
 
     StreamTcpInitConfig(TRUE);
     StreamMsgQueueSetMinChunkLen(FLOW_PKT_TOSERVER, 4096);
@@ -5287,7 +5459,7 @@ static int StreamTcpReassembleTest29 (void) {
     uint8_t th_flags;
     uint8_t flowflags;
     uint8_t check_contents[5] = {0x41, 0x41, 0x42, 0x42, 0x42};
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     TcpSession ssn;
     memset(&ssn, 0, sizeof (TcpSession));
 
@@ -5367,7 +5539,7 @@ static int StreamTcpReassembleTest30 (void) {
     TcpSession ssn;
     memset(&ssn, 0, sizeof (TcpSession));
 
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
 
     flowflags = FLOW_PKT_TOSERVER;
     th_flag = TH_ACK|TH_PUSH;
@@ -5459,7 +5631,7 @@ static int StreamTcpReassembleTest31 (void) {
     uint8_t th_flag;
     uint8_t flowflags;
     uint8_t check_contents[5] = {0x41, 0x41, 0x42, 0x42, 0x42};
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     TcpSession ssn;
     memset(&ssn, 0, sizeof (TcpSession));
 
@@ -5529,7 +5701,7 @@ static int StreamTcpReassembleTest32(void) {
         return 0;
     Flow f;
     TCPHdr tcph;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     TcpStream stream;
     uint8_t ret = 0;
     uint8_t check_contents[35] = {0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41,
@@ -5618,7 +5790,7 @@ static int StreamTcpReassembleTest33(void) {
         return 0;
     Flow f;
     TCPHdr tcph;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     TcpStream stream;
     memset(&stream, 0, sizeof (TcpStream));
     stream.os_policy = OS_POLICY_BSD;
@@ -5698,7 +5870,7 @@ static int StreamTcpReassembleTest34(void) {
         return 0;
     Flow f;
     TCPHdr tcph;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     TcpStream stream;
     memset(&stream, 0, sizeof (TcpStream));
     stream.os_policy = OS_POLICY_BSD;
@@ -5779,7 +5951,7 @@ static int StreamTcpReassembleTest35(void) {
         return 0;
     Flow f;
     TCPHdr tcph;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     TcpStream stream;
     memset(&stream, 0, sizeof (TcpStream));
     stream.os_policy = OS_POLICY_BSD;
@@ -5847,7 +6019,7 @@ static int StreamTcpReassembleTest36(void) {
         return 0;
     Flow f;
     TCPHdr tcph;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     TcpStream stream;
     memset(&stream, 0, sizeof (TcpStream));
     stream.os_policy = OS_POLICY_BSD;
@@ -5911,7 +6083,7 @@ static int StreamTcpReassembleTest37(void) {
     TcpSession ssn;
     Flow f;
     TCPHdr tcph;
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
     TcpStream stream;
     uint8_t packet[1460] = "";
     PacketQueue pq;
@@ -6025,7 +6197,7 @@ static int StreamTcpReassembleTest38 (void) {
     memset(&tv, 0, sizeof (ThreadVars));
 
     StreamTcpInitConfig(TRUE);
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
 
     uint8_t httpbuf2[] = "POST / HTTP/1.0\r\nUser-Agent: Victor/1.0\r\n\r\n";
     uint32_t httplen2 = sizeof(httpbuf2) - 1; /* minus the \0 */
@@ -6738,7 +6910,7 @@ static int StreamTcpReassembleTest40 (void) {
     StreamTcpInitConfig(TRUE);
     StreamMsgQueueSetMinChunkLen(FLOW_PKT_TOSERVER, 130);
 
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
 
     uint8_t httpbuf1[] = "P";
     uint32_t httplen1 = sizeof(httpbuf1) - 1; /* minus the \0 */
@@ -6935,7 +7107,7 @@ static int StreamTcpReassembleTest43 (void) {
     memset(&tv, 0, sizeof (ThreadVars));
 
     StreamTcpInitConfig(TRUE);
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
 
     uint8_t httpbuf1[] = "/ HTTP/1.0\r\nUser-Agent: Victor/1.0";
 
@@ -7154,7 +7326,7 @@ static int StreamTcpReassembleTest45 (void) {
     uint32_t httplen1 = sizeof(httpbuf1) - 1; /* minus the \0 */
 
     StreamTcpInitConfig(TRUE);
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
 
     STREAMTCP_SET_RA_BASE_SEQ(&ssn.server, 9);
     ssn.server.isn = 9;
@@ -7271,7 +7443,7 @@ static int StreamTcpReassembleTest46 (void) {
     uint32_t httplen1 = sizeof(httpbuf1) - 1; /* minus the \0 */
 
     StreamTcpInitConfig(TRUE);
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
 
     STREAMTCP_SET_RA_BASE_SEQ(&ssn.server, 9);
     ssn.server.isn = 9;
@@ -7394,7 +7566,7 @@ static int StreamTcpReassembleTest47 (void) {
     StreamMsgQueueSetMinChunkLen(FLOW_PKT_TOCLIENT, 0);
 
     StreamTcpInitConfig(TRUE);
-    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx();
+    TcpReassemblyThreadCtx *ra_ctx = StreamTcpReassembleInitThreadCtx(NULL);
 
     uint8_t httpbuf1[] = "GET /EVILSUFF HTTP/1.1\r\n\r\n";
     uint32_t httplen1 = sizeof(httpbuf1) - 1; /* minus the \0 */

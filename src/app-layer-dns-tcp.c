@@ -150,12 +150,16 @@ bad_data:
 
 static int BufferData(DNSState *dns_state, uint8_t *data, uint16_t len) {
     if (dns_state->buffer == NULL) {
+        if (DNSCheckMemcap(0xffff, dns_state) < 0)
+            return -1;
+
         /** \todo be smarter about this, like use a pool or several pools for
          *        chunks of various sizes */
         dns_state->buffer = SCMalloc(0xffff);
         if (dns_state->buffer == NULL) {
             return -1;
         }
+        DNSIncrMemcap(0xffff, dns_state);
     }
 
     if ((uint32_t)len + (uint32_t)dns_state->offset > (uint32_t)dns_state->record_len) {
@@ -601,10 +605,19 @@ void RegisterDNSTCPParsers(void) {
                                           STREAM_TOSERVER,
                                           DNSTcpProbingParser);
         } else {
-            AppLayerProtoDetectPPParseConfPorts("udp", IPPROTO_TCP,
+            int have_cfg = AppLayerProtoDetectPPParseConfPorts("tcp", IPPROTO_TCP,
                                                 proto_name, ALPROTO_DNS,
                                                 0, sizeof(DNSTcpHeader),
                                                 DNSTcpProbingParser);
+            /* if we have no config, we enable the default port 53 */
+            if (!have_cfg) {
+                SCLogWarning(SC_ERR_DNS_CONFIG, "no DNS TCP config found, "
+                                                "enabling DNS detection on "
+                                                "port 53.");
+                AppLayerProtoDetectPPRegister(IPPROTO_TCP, "53",
+                                   ALPROTO_DNS, 0, sizeof(DNSTcpHeader),
+                                   STREAM_TOSERVER, DNSTcpProbingParser);
+            }
         }
     } else {
         SCLogInfo("Protocol detection and parser disabled for %s protocol.",

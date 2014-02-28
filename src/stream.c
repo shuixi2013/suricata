@@ -45,19 +45,6 @@ static uint16_t toclient_min_chunk_len = 2560;
 static Pool *stream_msg_pool = NULL;
 static SCMutex stream_msg_pool_mutex = SCMUTEX_INITIALIZER;
 
-int StreamMsgInit(void *data, void *initdata)
-{
-    memset(data, 0, sizeof(StreamMsg));
-
-#ifdef DEBUG
-    SCMutexLock(&stream_pool_memuse_mutex);
-    stream_pool_memuse += sizeof(StreamMsg);
-    stream_pool_memcnt ++;
-    SCMutexUnlock(&stream_pool_memuse_mutex);
-#endif
-    return 1;
-}
-
 static void StreamMsgEnqueue (StreamMsgQueue *q, StreamMsg *s) {
     SCEnter();
     SCLogDebug("s %p", s);
@@ -143,18 +130,58 @@ void StreamMsgPutInQueue(StreamMsgQueue *q, StreamMsg *s)
     SCLogDebug("q->len %" PRIu32 "", q->len);
 }
 
-void StreamMsgQueuesInit(void) {
+void *StreamMsgPoolAlloc(void) {
+    if (StreamTcpReassembleCheckMemcap((uint32_t)sizeof(StreamMsg)) == 0)
+        return NULL;
+
+    StreamMsg *m = SCMalloc(sizeof(StreamMsg));
+    if (m != NULL)
+        StreamTcpReassembleIncrMemuse((uint32_t)sizeof(StreamMsg));
+
+    return m;
+}
+
+int StreamMsgInit(void *data, void *initdata)
+{
+    memset(data, 0, sizeof(StreamMsg));
+
+#ifdef DEBUG
+    SCMutexLock(&stream_pool_memuse_mutex);
+    stream_pool_memuse += sizeof(StreamMsg);
+    stream_pool_memcnt ++;
+    SCMutexUnlock(&stream_pool_memuse_mutex);
+#endif
+    return 1;
+}
+
+void StreamMsgPoolFree(void *ptr) {
+    if (ptr) {
+        SCFree(ptr);
+        StreamTcpReassembleDecrMemuse((uint32_t)sizeof(StreamMsg));
+    }
+}
+
+void StreamMsgQueuesInit(uint32_t prealloc) {
 #ifdef DEBUG
     SCMutexInit(&stream_pool_memuse_mutex, NULL);
 #endif
     SCMutexLock(&stream_msg_pool_mutex);
-    stream_msg_pool = PoolInit(0,250,sizeof(StreamMsg),NULL,StreamMsgInit,NULL,NULL,NULL);
+    stream_msg_pool = PoolInit(0, prealloc, 0,
+            StreamMsgPoolAlloc,StreamMsgInit,
+            NULL,NULL,StreamMsgPoolFree);
     if (stream_msg_pool == NULL)
         exit(EXIT_FAILURE); /* XXX */
     SCMutexUnlock(&stream_msg_pool_mutex);
 }
 
 void StreamMsgQueuesDeinit(char quiet) {
+    if (quiet == FALSE) {
+        if (stream_msg_pool->max_outstanding > stream_msg_pool->allocated)
+            SCLogInfo("TCP segment chunk pool had a peak use of %u chunks, "
+                    "more than the prealloc setting of %u",
+                    stream_msg_pool->max_outstanding, stream_msg_pool->allocated);
+    }
+
     SCMutexLock(&stream_msg_pool_mutex);
     PoolFree(stream_msg_pool);
     SCMutexUnlock(&stream_msg_pool_mutex);
@@ -170,9 +197,14 @@ void StreamMsgQueuesDeinit(char quiet) {
 /** \brief alloc a stream msg queue
  *  \retval smq ptr to the queue or NULL */
 StreamMsgQueue *StreamMsgQueueGetNew(void) {
+    if (StreamTcpReassembleCheckMemcap((uint32_t)sizeof(StreamMsgQueue)) == 0)
+        return NULL;
+
     StreamMsgQueue *smq = SCMalloc(sizeof(StreamMsgQueue));
     if (unlikely(smq == NULL))
         return NULL;
+
+    StreamTcpReassembleIncrMemuse((uint32_t)sizeof(StreamMsgQueue));
 
     memset(smq, 0x00, sizeof(StreamMsgQueue));
     return smq;
@@ -184,6 +216,7 @@ StreamMsgQueue *StreamMsgQueueGetNew(void) {
  */
 void StreamMsgQueueFree(StreamMsgQueue *q) {
     SCFree(q);
+    StreamTcpReassembleDecrMemuse((uint32_t)sizeof(StreamMsgQueue));
 }
 
 StreamMsgQueue *StreamMsgQueueGetByPort(uint16_t port) {
@@ -225,7 +258,7 @@ void StreamMsgReturnListToPool(void *list) {
  *
  * \return -1 in case of error, the number of segment in case of success
  */
-int StreamSegmentForEach(Packet *p, uint8_t flag, StreamSegmentCallback CallbackFunc, void *data)
+int StreamSegmentForEach(const Packet *p, uint8_t flag, StreamSegmentCallback CallbackFunc, void *data)
 {
     switch(p->proto) {
         case IPPROTO_TCP:

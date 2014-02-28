@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2013 Open Information Security Foundation
+/* Copyright (C) 2007-2014 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -62,43 +62,32 @@
 
 #define MODULE_NAME "AlertFastLog"
 
-TmEcode AlertFastLog (ThreadVars *, Packet *, void *, PacketQueue *, PacketQueue *);
-TmEcode AlertFastLogIPv4(ThreadVars *, Packet *, void *, PacketQueue *, PacketQueue *);
-TmEcode AlertFastLogIPv6(ThreadVars *, Packet *, void *, PacketQueue *, PacketQueue *);
+/* The largest that size allowed for one alert string. */
+#define MAX_FASTLOG_ALERT_SIZE 2048
+/* The largest alert buffer that will be written at one time, possibly
+ * holding multiple alerts. */
+#define MAX_FASTLOG_BUFFER_SIZE (2 * MAX_FASTLOG_ALERT_SIZE)
+
 TmEcode AlertFastLogThreadInit(ThreadVars *, void *, void **);
 TmEcode AlertFastLogThreadDeinit(ThreadVars *, void *);
 void AlertFastLogExitPrintStats(ThreadVars *, void *);
 void AlertFastLogRegisterTests(void);
 static void AlertFastLogDeInitCtx(OutputCtx *);
 
+int AlertFastLogCondition(ThreadVars *tv, const Packet *p);
+int AlertFastLogger(ThreadVars *tv, void *data, const Packet *p);
+
 void TmModuleAlertFastLogRegister (void) {
     tmm_modules[TMM_ALERTFASTLOG].name = MODULE_NAME;
     tmm_modules[TMM_ALERTFASTLOG].ThreadInit = AlertFastLogThreadInit;
-    tmm_modules[TMM_ALERTFASTLOG].Func = AlertFastLog;
     tmm_modules[TMM_ALERTFASTLOG].ThreadExitPrintStats = AlertFastLogExitPrintStats;
     tmm_modules[TMM_ALERTFASTLOG].ThreadDeinit = AlertFastLogThreadDeinit;
     tmm_modules[TMM_ALERTFASTLOG].RegisterTests = AlertFastLogRegisterTests;
     tmm_modules[TMM_ALERTFASTLOG].cap_flags = 0;
+    tmm_modules[TMM_ALERTFASTLOG].flags = TM_FLAG_LOGAPI_TM;
 
-    OutputRegisterModule(MODULE_NAME, "fast", AlertFastLogInitCtx);
-}
-
-void TmModuleAlertFastLogIPv4Register (void) {
-    tmm_modules[TMM_ALERTFASTLOG4].name = "AlertFastLogIPv4";
-    tmm_modules[TMM_ALERTFASTLOG4].ThreadInit = AlertFastLogThreadInit;
-    tmm_modules[TMM_ALERTFASTLOG4].Func = AlertFastLogIPv4;
-    tmm_modules[TMM_ALERTFASTLOG4].ThreadExitPrintStats = AlertFastLogExitPrintStats;
-    tmm_modules[TMM_ALERTFASTLOG4].ThreadDeinit = AlertFastLogThreadDeinit;
-    tmm_modules[TMM_ALERTFASTLOG4].RegisterTests = NULL;
-}
-
-void TmModuleAlertFastLogIPv6Register (void) {
-    tmm_modules[TMM_ALERTFASTLOG6].name = "AlertFastLogIPv6";
-    tmm_modules[TMM_ALERTFASTLOG6].ThreadInit = AlertFastLogThreadInit;
-    tmm_modules[TMM_ALERTFASTLOG6].Func = AlertFastLogIPv6;
-    tmm_modules[TMM_ALERTFASTLOG6].ThreadExitPrintStats = AlertFastLogExitPrintStats;
-    tmm_modules[TMM_ALERTFASTLOG6].ThreadDeinit = AlertFastLogThreadDeinit;
-    tmm_modules[TMM_ALERTFASTLOG6].RegisterTests = NULL;
+    OutputRegisterPacketModule(MODULE_NAME, "fast",
+            AlertFastLogInitCtx, AlertFastLogger, AlertFastLogCondition);
 }
 
 typedef struct AlertFastLogThread_ {
@@ -106,163 +95,92 @@ typedef struct AlertFastLogThread_ {
     LogFileCtx* file_ctx;
 } AlertFastLogThread;
 
-TmEcode AlertFastLogIPv4(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQueue *postpq)
-{
-    AlertFastLogThread *aft = (AlertFastLogThread *)data;
-    int i;
-    char timebuf[64];
-    char *action = "";
-    extern uint8_t engine_mode;
-
-    if (p->alerts.cnt == 0)
-        return TM_ECODE_OK;
-
-    CreateTimeString(&p->ts, timebuf, sizeof(timebuf));
-
-    char srcip[16], dstip[16];
-    PrintInet(AF_INET, (const void *)GET_IPV4_SRC_ADDR_PTR(p), srcip, sizeof(srcip));
-    PrintInet(AF_INET, (const void *)GET_IPV4_DST_ADDR_PTR(p), dstip, sizeof(dstip));
-
-    for (i = 0; i < p->alerts.cnt; i++) {
-        PacketAlert *pa = &p->alerts.alerts[i];
-        if (unlikely(pa->s == NULL)) {
-            continue;
-        }
-
-        if ((pa->action & ACTION_DROP) && IS_ENGINE_MODE_IPS(engine_mode)) {
-            action = "[Drop] ";
-        } else if (pa->action & ACTION_DROP) {
-            action = "[wDrop] ";
-        }
-
-        char proto[16] = "";
-        if (SCProtoNameValid(IPV4_GET_IPPROTO(p)) == TRUE) {
-            strlcpy(proto, known_proto[IPV4_GET_IPPROTO(p)], sizeof(proto));
-        } else {
-            snprintf(proto, sizeof(proto), "PROTO:%03" PRIu32, IPV4_GET_IPPROTO(p));
-        }
-
-        SCMutexLock(&aft->file_ctx->fp_mutex);
-        fprintf(aft->file_ctx->fp, "%s  %s[**] [%" PRIu32 ":%" PRIu32 ":%"
-                PRIu32 "] %s [**] [Classification: %s] [Priority: %"PRIu32"]"
-                " {%s} %s:%" PRIu32 " -> %s:%" PRIu32 "\n", timebuf, action,
-                pa->s->gid, pa->s->id, pa->s->rev, pa->s->msg, pa->s->class_msg, pa->s->prio,
-                proto, srcip, p->sp, dstip, p->dp);
-        fflush(aft->file_ctx->fp);
-        aft->file_ctx->alerts++;
-        SCMutexUnlock(&aft->file_ctx->fp_mutex);
-    }
-
-    return TM_ECODE_OK;
+int AlertFastLogCondition(ThreadVars *tv, const Packet *p) {
+    return (p->alerts.cnt ? TRUE : FALSE);
 }
 
-TmEcode AlertFastLogIPv6(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQueue *postpq)
+static inline void AlertFastLogOutputAlert(AlertFastLogThread *aft, char *buffer,
+                                           int alert_size)
+{
+    SCMutex *file_lock = &aft->file_ctx->fp_mutex;
+    /* Output the alert string and count alerts. Only need to lock here. */
+    SCMutexLock(file_lock);
+    aft->file_ctx->alerts++;
+    aft->file_ctx->Write(buffer, alert_size, aft->file_ctx);
+    SCMutexUnlock(file_lock);
+}
+
+int AlertFastLogger(ThreadVars *tv, void *data, const Packet *p)
 {
     AlertFastLogThread *aft = (AlertFastLogThread *)data;
     int i;
     char timebuf[64];
     char *action = "";
-    extern uint8_t engine_mode;
-
-    if (p->alerts.cnt == 0)
-        return TM_ECODE_OK;
+    int decoder_event = 0;
 
     CreateTimeString(&p->ts, timebuf, sizeof(timebuf));
 
     char srcip[46], dstip[46];
-    PrintInet(AF_INET6, (const void *)GET_IPV6_SRC_ADDR(p), srcip, sizeof(srcip));
-    PrintInet(AF_INET6, (const void *)GET_IPV6_DST_ADDR(p), dstip, sizeof(dstip));
+    if (PKT_IS_IPV4(p)) {
+        PrintInet(AF_INET, (const void *)GET_IPV4_SRC_ADDR_PTR(p), srcip, sizeof(srcip));
+        PrintInet(AF_INET, (const void *)GET_IPV4_DST_ADDR_PTR(p), dstip, sizeof(dstip));
+    } else if (PKT_IS_IPV6(p)) {
+        PrintInet(AF_INET6, (const void *)GET_IPV6_SRC_ADDR(p), srcip, sizeof(srcip));
+        PrintInet(AF_INET6, (const void *)GET_IPV6_DST_ADDR(p), dstip, sizeof(dstip));
+    } else {
+        decoder_event = 1;
+    }
+
+    /* Buffer to store the generated alert strings. The buffer is
+     * filled with alert strings until it doesn't have room to store
+     * another full alert, only then is the buffer written.  This is
+     * more efficient for multiple alerts and only slightly slower for
+     * single alerts.
+     */
+    char alert_buffer[MAX_FASTLOG_BUFFER_SIZE];
 
     for (i = 0; i < p->alerts.cnt; i++) {
-        PacketAlert *pa = &p->alerts.alerts[i];
+        const PacketAlert *pa = &p->alerts.alerts[i];
         if (unlikely(pa->s == NULL)) {
             continue;
-        }
-
-        if ((pa->action & ACTION_DROP) && IS_ENGINE_MODE_IPS(engine_mode)) {
-            action = "[Drop] ";
-        } else if (pa->action & ACTION_DROP) {
-            action = "[wDrop] ";
         }
 
         char proto[16] = "";
-        if (SCProtoNameValid(IP_GET_IPPROTO(p)) == TRUE) {
-            strlcpy(proto, known_proto[IP_GET_IPPROTO(p)], sizeof(proto));
+        if (likely(decoder_event == 0)) {
+            if (SCProtoNameValid(IP_GET_IPPROTO(p)) == TRUE) {
+                strlcpy(proto, known_proto[IP_GET_IPPROTO(p)], sizeof(proto));
+            } else {
+                snprintf(proto, sizeof(proto), "PROTO:%03" PRIu32, IP_GET_IPPROTO(p));
+            }
+        }
+
+        /* Create the alert string without locking. */
+        int size = 0;
+        if (likely(decoder_event == 0)) {
+            PrintBufferData(alert_buffer, &size, MAX_FASTLOG_ALERT_SIZE, 
+                            "%s  %s[**] [%" PRIu32 ":%" PRIu32 ":%"
+                            PRIu32 "] %s [**] [Classification: %s] [Priority: %"PRIu32"]"
+                            " {%s} %s:%" PRIu32 " -> %s:%" PRIu32 "\n", timebuf, action,
+                            pa->s->gid, pa->s->id, pa->s->rev, pa->s->msg, pa->s->class_msg, pa->s->prio,
+                            proto, srcip, p->sp, dstip, p->dp);
         } else {
-            snprintf(proto, sizeof(proto), "PROTO:%03" PRIu32, IP_GET_IPPROTO(p));
+            PrintBufferData(alert_buffer, &size, MAX_FASTLOG_ALERT_SIZE, 
+                            "%s  %s[**] [%" PRIu32 ":%" PRIu32
+                            ":%" PRIu32 "] %s [**] [Classification: %s] [Priority: "
+                            "%" PRIu32 "] [**] [Raw pkt: ", timebuf, action, pa->s->gid,
+                            pa->s->id, pa->s->rev, pa->s->msg, pa->s->class_msg, pa->s->prio);
+            PrintBufferRawLineHex(alert_buffer, &size, MAX_FASTLOG_ALERT_SIZE,
+                                  GET_PKT_DATA(p), GET_PKT_LEN(p) < 32 ? GET_PKT_LEN(p) : 32);
+            if (p->pcap_cnt != 0) {
+                PrintBufferData(alert_buffer, &size, MAX_FASTLOG_ALERT_SIZE, 
+                                "] [pcap file packet: %"PRIu64"]\n", p->pcap_cnt);
+            } else {
+                PrintBufferData(alert_buffer, &size, MAX_FASTLOG_ALERT_SIZE, "]\n");
+            }
         }
 
-        SCMutexLock(&aft->file_ctx->fp_mutex);
-        fprintf(aft->file_ctx->fp, "%s  %s[**] [%" PRIu32 ":%" PRIu32 ":%"
-                PRIu32 "] %s [**] [Classification: %s] [Priority: %"
-                PRIu32 "] {%s} %s:%" PRIu32 " -> %s:%" PRIu32 "\n", timebuf,
-                action, pa->s->gid, pa->s->id, pa->s->rev, pa->s->msg, pa->s->class_msg,
-                pa->s->prio, proto, srcip, p->sp,
-                dstip, p->dp);
-
-        fflush(aft->file_ctx->fp);
-        aft->file_ctx->alerts++;
-        SCMutexUnlock(&aft->file_ctx->fp_mutex);
-    }
-
-    return TM_ECODE_OK;
-}
-
-TmEcode AlertFastLogDecoderEvent(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQueue *postpq)
-{
-    AlertFastLogThread *aft = (AlertFastLogThread *)data;
-    int i;
-    char timebuf[64];
-    char *action = "";
-    extern uint8_t engine_mode;
-
-    if (p->alerts.cnt == 0)
-        return TM_ECODE_OK;
-
-    CreateTimeString(&p->ts, timebuf, sizeof(timebuf));
-
-    for (i = 0; i < p->alerts.cnt; i++) {
-        PacketAlert *pa = &p->alerts.alerts[i];
-        if (unlikely(pa->s == NULL)) {
-            continue;
-        }
-
-        if ((pa->action & ACTION_DROP) && IS_ENGINE_MODE_IPS(engine_mode)) {
-            action = "[Drop] ";
-        } else if (pa->action & ACTION_DROP) {
-            action = "[wDrop] ";
-        }
-
-        SCMutexLock(&aft->file_ctx->fp_mutex);
-        fprintf(aft->file_ctx->fp, "%s  %s[**] [%" PRIu32 ":%" PRIu32
-                ":%" PRIu32 "] %s [**] [Classification: %s] [Priority: "
-                "%" PRIu32 "] [**] [Raw pkt: ", timebuf, action, pa->s->gid,
-                pa->s->id, pa->s->rev, pa->s->msg, pa->s->class_msg, pa->s->prio);
-
-        PrintRawLineHexFp(aft->file_ctx->fp, GET_PKT_DATA(p), GET_PKT_LEN(p) < 32 ? GET_PKT_LEN(p) : 32);
-
-        if (p->pcap_cnt != 0) {
-            fprintf(aft->file_ctx->fp, "] [pcap file packet: %"PRIu64"]\n", p->pcap_cnt);
-        } else {
-            fprintf(aft->file_ctx->fp, "]\n");
-        }
-
-        fflush(aft->file_ctx->fp);
-        aft->file_ctx->alerts++;
-        SCMutexUnlock(&aft->file_ctx->fp_mutex);
-    }
-
-    return TM_ECODE_OK;
-}
-
-TmEcode AlertFastLog (ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQueue *postpq)
-{
-    if (PKT_IS_IPV4(p)) {
-        return AlertFastLogIPv4(tv, p, data, pq, postpq);
-    } else if (PKT_IS_IPV6(p)) {
-        return AlertFastLogIPv6(tv, p, data, pq, postpq);
-    } else if (p->events.cnt > 0) {
-        return AlertFastLogDecoderEvent(tv, p, data, pq, postpq);
+        /* Write the alert to output file */
+        AlertFastLogOutputAlert(aft, alert_buffer, size);
     }
 
     return TM_ECODE_OK;
@@ -301,7 +219,8 @@ TmEcode AlertFastLogThreadDeinit(ThreadVars *t, void *data)
     return TM_ECODE_OK;
 }
 
-void AlertFastLogExitPrintStats(ThreadVars *tv, void *data) {
+void AlertFastLogExitPrintStats(ThreadVars *tv, void *data)
+{
     AlertFastLogThread *aft = (AlertFastLogThread *)data;
     if (aft == NULL) {
         return;
@@ -348,7 +267,7 @@ static void AlertFastLogDeInitCtx(OutputCtx *output_ctx)
 
 #ifdef UNITTESTS
 
-int AlertFastLogTest01()
+static int AlertFastLogTest01()
 {
     int result = 0;
     uint8_t *buf = (uint8_t *) "GET /one/ HTTP/1.1\r\n"
@@ -396,7 +315,7 @@ int AlertFastLogTest01()
     return result;
 }
 
-int AlertFastLogTest02()
+static int AlertFastLogTest02()
 {
     int result = 0;
     uint8_t *buf = (uint8_t *) "GET /one/ HTTP/1.1\r\n"
