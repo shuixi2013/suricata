@@ -221,6 +221,7 @@ output-json-dns.c output-json-dns.h \
 output-json-drop.c output-json-drop.h \
 output-json-file.c output-json-file.h \
 output-json-http.c output-json-http.h \
+output-json-ssh.c output-json-ssh.h \
 output-json-tls.c output-json-tls.h \
 output-packet.c output-packet.h \
 output-tx.c output-tx.h \
@@ -312,6 +313,7 @@ util-logopenfile.h util-logopenfile.c \
 util-logopenfile-tile.h util-logopenfile-tile.c \
 util-magic.c util-magic.h \
 util-memcmp.c util-memcmp.h \
+util-memcpy.h \
 util-mem.h \
 util-memrchr.c util-memrchr.h \
 util-misc.c util-misc.h \

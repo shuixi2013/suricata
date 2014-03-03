@@ -88,6 +88,7 @@
 #include "output-json-dns.h"
 #include "log-tlslog.h"
 #include "output-json-tls.h"
+#include "output-json-ssh.h"
 #include "log-pcap.h"
 #include "log-file.h"
 #include "output-json-file.h"
@@ -422,6 +423,13 @@ static void SetBpfStringFromFile(char *filename) {
 #endif /* OS_WIN32 */
     FILE *fp = NULL;
     size_t nm = 0;
+
+    if (IS_ENGINE_MODE_IPS(engine_mode)) {
+        SCLogError(SC_ERR_NOT_SUPPORTED,
+                   "BPF filter not available in IPS mode."
+                   " Use firewall filtering if possible.");
+        exit(EXIT_FAILURE);
+    }
 
 #ifdef OS_WIN32
     if(_stat(filename, &st) != 0) {
@@ -809,6 +817,8 @@ void RegisterAllModules()
     /* tls log */
     TmModuleLogTlsLogRegister();
     TmModuleJsonTlsLogRegister();
+    /* ssh */
+    TmModuleJsonSshLogRegister();
     /* pcap log */
     TmModulePcapLogRegister();
     /* file log */
