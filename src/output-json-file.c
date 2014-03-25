@@ -165,7 +165,7 @@ static json_t *LogFileMetaGetUserAgent(const Packet *p, const File *ff) {
  */
 static void FileWriteJsonRecord(JsonFileLogThread *aft, const Packet *p, const File *ff) {
     MemBuffer *buffer = (MemBuffer *)aft->buffer;
-    json_t *js = CreateJSONHeader((Packet *)p, 0, "file"); //TODO const
+    json_t *js = CreateJSONHeader((Packet *)p, 0, "fileinfo"); //TODO const
     if (unlikely(js == NULL))
         return;
 
@@ -231,9 +231,10 @@ static void FileWriteJsonRecord(JsonFileLogThread *aft, const Packet *p, const F
                         (ff->flags & FILE_STORED) ? json_true() : json_false());
     json_object_set_new(fjs, "size", json_integer(ff->size));
 
-    json_object_set_new(js, "file", fjs);
+    /* originally just 'file', but due to bug 1127 naming it fileinfo */
+    json_object_set_new(js, "fileinfo", fjs);
     OutputJSONBuffer(js, aft->filelog_ctx->file_ctx, buffer);
-    json_object_del(js, "file");
+    json_object_del(js, "fileinfo");
     json_object_del(js, "http");
 
     json_object_clear(js);

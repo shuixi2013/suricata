@@ -158,7 +158,7 @@ json_t *CreateJSONHeader(Packet *p, int direction_sensitive, char *event_type)
     if (unlikely(js == NULL))
         return NULL;
 
-    CreateTimeString(&p->ts, timebuf, sizeof(timebuf));
+    CreateIsoTimeString(&p->ts, timebuf, sizeof(timebuf));
 
     srcip[0] = '\0';
     dstip[0] = '\0';
@@ -204,7 +204,7 @@ json_t *CreateJSONHeader(Packet *p, int direction_sensitive, char *event_type)
     }
 
     /* time & tx */
-    json_object_set_new(js, "time", json_string(timebuf));
+    json_object_set_new(js, "timestamp", json_string(timebuf));
 
     /* sensor id */
     if (sensor_id >= 0)
@@ -225,15 +225,15 @@ json_t *CreateJSONHeader(Packet *p, int direction_sensitive, char *event_type)
         switch (p->vlan_idx) {
             case 1:
                 json_object_set_new(js, "vlan",
-                                    json_integer(ntohs(GET_VLAN_ID(p->vlanh[0]))));
+                                    json_integer(VLAN_GET_ID1(p)));
                 break;
             case 2:
                 js_vlan = json_array();
                 if (unlikely(js != NULL)) {
                     json_array_append_new(js_vlan,
-                                    json_integer(ntohs(GET_VLAN_ID(p->vlanh[0]))));
+                                    json_integer(VLAN_GET_ID1(p)));
                     json_array_append_new(js_vlan,
-                                    json_integer(ntohs(GET_VLAN_ID(p->vlanh[1]))));
+                                    json_integer(VLAN_GET_ID2(p)));
                     json_object_set_new(js, "vlan", js_vlan);
                 }
                 break;

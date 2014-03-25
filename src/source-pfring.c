@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2013 Open Information Security Foundation
+/* Copyright (C) 2007-2014 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -46,6 +46,7 @@
 #include "util-checksum.h"
 #include "util-privs.h"
 #include "util-device.h"
+#include "util-host-info.h"
 #include "runmodes.h"
 
 #ifdef __SC_CUDA_SUPPORT__
@@ -139,6 +140,8 @@ typedef struct PfringThreadVars_
 
     ThreadVars *tv;
     TmSlot *slot;
+
+    int vlan_disabled;
 
     /* threads count */
     int threads;
@@ -234,6 +237,16 @@ static inline void PfringProcessPacket(void *user, struct pfring_pkthdr *h, Pack
      * so that is what we do here. */
     p->datalink = LINKTYPE_ETHERNET;
 
+    /* get vlan id from header. Check on vlan_id not null even if comment in
+     * header announce NO_VLAN is used when there is no VLAN. But NO_VLAN
+     * is not defined nor used in PF_RING code. And vlan_id is set to 0
+     * in PF_RING kernel code when there is no VLAN. */
+    if ((!ptv->vlan_disabled) && h->extended_hdr.parsed_pkt.vlan_id) {
+        p->vlan_id[0] = h->extended_hdr.parsed_pkt.vlan_id;
+        p->vlan_idx = 1;
+        p->vlanh[0] = NULL;
+    }
+
     switch (ptv->checksum_mode) {
         case CHECKSUM_VALIDATION_RXONLY:
             if (h->extended_hdr.rx_direction == 0) {
@@ -285,6 +298,16 @@ TmEcode ReceivePfringLoop(ThreadVars *tv, void *data, void *slot)
     struct timeval current_time;
 
     ptv->slot = s->slot_next;
+
+    /* we have to enable the ring here as we need to do it after all
+     * the threads have called pfring_set_cluster(). */
+#ifdef HAVE_PFRING_ENABLE
+    int rc = pfring_enable_ring(ptv->pd);
+    if (rc != 0) {
+        SCLogError(SC_ERR_PF_RING_OPEN, "pfring_enable_ring failed returned %d ", rc);
+        SCReturnInt(TM_ECODE_FAILED);
+    }
+#endif /* HAVE_PFRING_ENABLE */
 
     while(1) {
         if (suricata_ctl_flags & (SURICATA_STOP | SURICATA_KILL)) {
@@ -407,6 +430,12 @@ TmEcode ReceivePfringThreadInit(ThreadVars *tv, void *initdata, void **data) {
 
     opflag = PF_RING_REENTRANT | PF_RING_PROMISC;
 
+    /* if suri uses VLAN and if we have a recent kernel, we need
+     * to use parsed_pkt to get VLAN info */
+    if ((! ptv->vlan_disabled) && SCKernelVersionIsAtLeast(3, 0)) {
+        opflag |= PF_RING_LONG_HEADER;
+    }
+
     if (ptv->checksum_mode == CHECKSUM_VALIDATION_RXONLY) {
         if (strncmp(ptv->interface, "dna", 3) == 0) {
             SCLogWarning(SC_ERR_INVALID_VALUE,
@@ -495,17 +524,20 @@ TmEcode ReceivePfringThreadInit(ThreadVars *tv, void *initdata, void **data) {
             SC_PERF_TYPE_UINT64,
             "NULL");
 
-/* It seems that as of 4.7.1 this is required */
-#ifdef HAVE_PFRING_ENABLE
-    rc = pfring_enable_ring(ptv->pd);
-
-    if (rc != 0) {
-        SCLogError(SC_ERR_PF_RING_OPEN, "pfring_enable failed returned %d ", rc);
-        pfconf->DerefFunc(pfconf);
-        return TM_ECODE_FAILED;
+    /* A bit strange to have this here but we only have vlan information
+     * during reading so we need to know if we want to keep vlan during
+     * the capture phase */
+    int vlanbool = 0;
+    if ((ConfGetBool("vlan.use-for-tracking", &vlanbool)) == 1 && vlanbool == 0) {
+        ptv->vlan_disabled = 1;
     }
-#endif /* HAVE_PFRING_ENABLE */
 
+    /* If kernel is older than 3.8, VLAN is not stripped so we don't
+     * get the info from packt extended header but we will use a standard
+     * parsing */
+    if (! SCKernelVersionIsAtLeast(3, 0)) {
+        ptv->vlan_disabled = 1;
+    }
 
     *data = (void *)ptv;
     pfconf->DerefFunc(pfconf);
@@ -588,6 +620,11 @@ TmEcode DecodePfring(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Pac
 
     SCPerfCounterAddUI64(dtv->counter_avg_pkt_size, tv->sc_perf_pca, GET_PKT_LEN(p));
     SCPerfCounterSetUI64(dtv->counter_max_pkt_size, tv->sc_perf_pca, GET_PKT_LEN(p));
+
+    /* If suri has set vlan during reading, we increase vlan counter */
+    if (p->vlan_idx) {
+        SCPerfCounterIncr(dtv->counter_vlan, tv->sc_perf_pca);
+    }
 
     DecodeEthernet(tv, dtv, p, GET_PKT_DATA(p), GET_PKT_LEN(p), pq);
 
