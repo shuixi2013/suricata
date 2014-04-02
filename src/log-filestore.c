@@ -137,7 +137,7 @@ static void LogFilestoreMetaGetUserAgent(FILE *fp, const Packet *p, const File *
     fprintf(fp, "<unknown>");
 }
 
-static void LogFilestoreMetaGetSmtp(FILE *fp, Packet *p, File *ff) {
+static void LogFilestoreMetaGetSmtp(FILE *fp, const Packet *p, const File *ff) {
 
     SMTPState *state = (SMTPState *) p->flow->alstate;
     if (state != NULL && state->msg_tail != NULL) {
@@ -159,7 +159,7 @@ static void LogFilestoreMetaGetSmtp(FILE *fp, Packet *p, File *ff) {
     }
 }
 
-static void LogFilestoreLogCreateMetaFile(Packet *p, File *ff, char *filename, int ipver) {
+static void LogFilestoreLogCreateMetaFile(const Packet *p, const File *ff, char *filename, int ipver) {
     char metafilename[PATH_MAX] = "";
     snprintf(metafilename, sizeof(metafilename), "%s.meta", filename);
     FILE *fp = fopen(metafilename, "w+");
