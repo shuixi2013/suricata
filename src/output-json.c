@@ -163,7 +163,7 @@ json_t *CreateJSONHeader(Packet *p, int direction_sensitive, char *event_type)
     srcip[0] = '\0';
     dstip[0] = '\0';
     if (direction_sensitive) {
-        if ((PKT_IS_TOCLIENT(p))) {
+        if ((PKT_IS_TOSERVER(p))) {
             if (PKT_IS_IPV4(p)) {
                 PrintInet(AF_INET, (const void *)GET_IPV4_SRC_ADDR_PTR(p), srcip, sizeof(srcip));
                 PrintInet(AF_INET, (const void *)GET_IPV4_DST_ADDR_PTR(p), dstip, sizeof(dstip));
@@ -469,6 +469,7 @@ OutputCtx *OutputJsonInitCtx(ConfNode *conf)
         json_out = json_ctx->json_out;
     }
 
+    SCLogInfo("returning output_ctx %p", output_ctx);
     return output_ctx;
 }
 
@@ -477,6 +478,7 @@ static void OutputJsonDeInitCtx(OutputCtx *output_ctx)
     OutputJsonCtx *json_ctx = (OutputJsonCtx *)output_ctx->data;
     LogFileCtx *logfile_ctx = json_ctx->file_ctx;
     LogFileFreeCtx(logfile_ctx);
+    SCFree(json_ctx);
     SCFree(output_ctx);
 }
 

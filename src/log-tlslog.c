@@ -169,7 +169,7 @@ static int CreateFileName(LogTlsFileCtx *log, const Packet *p, SSLState *state, 
      * On a live device, we will not be able to overwrite */
     snprintf(filename, filenamelen, "%s/%ld.%ld-%d.pem",
              tls_logfile_base_dir,
-             p->ts.tv_sec,
+             (long int)p->ts.tv_sec,
              (long int)p->ts.tv_usec,
              file_id);
     return 1;
@@ -379,6 +379,8 @@ static TmEcode LogTlsLogThreadDeinit(ThreadVars *t, void *data)
 
 static void LogTlsLogDeInitCtx(OutputCtx *output_ctx)
 {
+    OutputTlsLoggerDisable();
+
     LogTlsFileCtx *tlslog_ctx = (LogTlsFileCtx *) output_ctx->data;
     LogFileFreeCtx(tlslog_ctx->file_ctx);
     SCFree(tlslog_ctx);
