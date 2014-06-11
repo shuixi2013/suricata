@@ -101,6 +101,8 @@
 #include "source-nfq.h"
 #include "source-nfq-prototypes.h"
 
+#include "source-nflog.h"
+
 #include "source-ipfw.h"
 
 #include "source-pcap.h"
@@ -267,6 +269,13 @@ void SignalHandlerSigusr2Disabled(int sig)
     return;
 }
 
+void SignalHandlerSigusr2StartingUp(int sig)
+{
+    SCLogInfo("Live rule reload only possible after engine completely started.");
+
+    return;
+}
+
 void SignalHandlerSigusr2DelayedDetect(int sig)
 {
     SCLogWarning(SC_ERR_LIVE_RULE_SWAP, "Live rule reload blocked while delayed detect is still loading.");
@@ -309,6 +318,14 @@ void SignalHandlerSigusr2(int sig)
     DetectEngineSpawnLiveRuleSwapMgmtThread();
 
     return;
+}
+
+/**
+ * SIGHUP handler.  Just set sighup_count.  The main loop will act on
+ * it.
+ */
+static void SignalHandlerSigHup(/*@unused@*/ int sig) {
+    sighup_count = 1;
 }
 
 #ifdef DBG_MEM_ALLOC
@@ -667,6 +684,9 @@ void SCPrintBuildInfo(void) {
 #ifdef HAVE_NSS
     strlcat(features, "HAVE_NSS ", sizeof(features));
 #endif
+#ifdef HAVE_LUA
+    strlcat(features, "HAVE_LUA ", sizeof(features));
+#endif
 #ifdef HAVE_LUAJIT
     strlcat(features, "HAVE_LUAJIT ", sizeof(features));
 #endif
@@ -857,6 +877,9 @@ void RegisterAllModules()
     TmModuleFileLoggerRegister();
     TmModuleFiledataLoggerRegister();
     TmModuleDebugList();
+    /* nflog */
+    TmModuleReceiveNFLOGRegister();
+    TmModuleDecodeNFLOGRegister();
 
 }
 
@@ -947,6 +970,14 @@ static TmEcode ParseInterfacesList(int run_mode, char *pcap_dev)
                 SCReturnInt(TM_ECODE_FAILED);
             }
         }
+#ifdef HAVE_NFLOG
+    } else if (run_mode == RUNMODE_NFLOG) {
+        int ret = LiveBuildDeviceListCustom("nflog", "group");
+        if (ret == 0) {
+            SCLogError(SC_ERR_INITIALIZATION, "No group found in config for nflog");
+            SCReturnInt(TM_ECODE_FAILED);
+        }
+#endif
     }
 
     SCReturnInt(TM_ECODE_OK);
@@ -1086,6 +1117,9 @@ static TmEcode ParseCommandLine(int argc, char** argv, SCInstance *suri)
         {"mpipe", optional_argument, 0, 0},
 #endif
         {"set", required_argument, 0, 0},
+#ifdef HAVE_NFLOG
+        {"nflog", optional_argument, 0, 0},
+#endif
         {NULL, 0, NULL, 0}
     };
 
@@ -1170,6 +1204,16 @@ static TmEcode ParseCommandLine(int argc, char** argv, SCInstance *suri)
                         "configure when building.");
                 return TM_ECODE_FAILED;
 #endif
+            } else if (strcmp((long_opts[option_index]).name, "nflog") == 0) {
+#ifdef HAVE_NFLOG
+                if (suri->run_mode == RUNMODE_UNKNOWN) {
+                    suri->run_mode = RUNMODE_NFLOG;
+                    LiveBuildDeviceListCustom("nflog", "group");
+                }
+#else
+                SCLogError(SC_ERR_NFLOG_NOSUPPORT, "NFLOG not enabled.");
+                return TM_ECODE_FAILED;
+#endif /* HAVE_NFLOG */
             } else if (strcmp((long_opts[option_index]).name , "pcap") == 0) {
                 if (suri->run_mode == RUNMODE_UNKNOWN) {
                     suri->run_mode = RUNMODE_PCAP_DEV;
@@ -1696,7 +1740,7 @@ static int InitSignalHandler(SCInstance *suri)
 
 #ifndef OS_WIN32
     /* SIGHUP is not implemented on WIN32 */
-    UtilSignalHandlerSetup(SIGHUP, SIG_IGN);
+    UtilSignalHandlerSetup(SIGHUP, SignalHandlerSigHup);
 
     /* Try to get user/group to run suricata as if
        command line as not decide of that */
@@ -2034,7 +2078,7 @@ static int PostConfLoadedSetup(SCInstance *suri)
         if (suri->sig_file != NULL)
             UtilSignalHandlerSetup(SIGUSR2, SignalHandlerSigusr2SigFileStartup);
         else
-            UtilSignalHandlerSetup(SIGUSR2, SignalHandlerSigusr2Idle);
+            UtilSignalHandlerSetup(SIGUSR2, SignalHandlerSigusr2StartingUp);
     } else {
         UtilSignalHandlerSetup(SIGUSR2, SignalHandlerSigusr2Disabled);
     }
@@ -2200,11 +2244,6 @@ int main(int argc, char **argv)
                 exit(EXIT_SUCCESS);
             }
         }
-
-        /* registering singal handlers we use.  We register usr2 here, so that one
-         * can't call it during the first sig load phase */
-        if (suri.sig_file == NULL && suri.rule_reload == 1 && suri.delayed_detect == 0)
-            UtilSignalHandlerSetup(SIGUSR2, SignalHandlerSigusr2);
     }
 
     SCAsn1LoadConfig();
@@ -2270,6 +2309,12 @@ int main(int argc, char **argv)
 
     /* Un-pause all the paused threads */
     TmThreadContinueThreads();
+    /* registering singal handlers we use.  We register usr2 here, so that one
+     * can't call it during the first sig load phase or while threads are still
+     * starting up. */
+    if (de_ctx != NULL && suri.sig_file == NULL && suri.rule_reload == 1 &&
+            suri.delayed_detect == 0)
+        UtilSignalHandlerSetup(SIGUSR2, SignalHandlerSigusr2);
 
     if (de_ctx != NULL && suri.delayed_detect) {
         if (LoadSignatures(de_ctx, &suri) != TM_ECODE_OK)
@@ -2303,6 +2348,11 @@ int main(int argc, char **argv)
         }
 
         TmThreadCheckThreadState();
+
+        if (sighup_count > 0) {
+            OutputNotifyFileRotation();
+            sighup_count--;
+        }
 
         usleep(10* 1000);
     }

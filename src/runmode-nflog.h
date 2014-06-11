@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2013 Open Information Security Foundation
+/* Copyright (C) 2014 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -18,18 +18,15 @@
 /**
  * \file
  *
- * \author Victor Julien <victor@inliniac.net>
+ * \author Giuseppe Longo <giuseppelng@gmail.com>
  */
+#ifndef __RUNMODE_NFLOG_H__
+#define __RUNMODE_NFLOG_H__
 
-#ifndef __DETECT_LUAJIT_EXT_H__
-#define __DETECT_LUAJIT_EXT_H__
+int RunModeIdsNflogAutoFp(DetectEngineCtx *);
+int RunModeIdsNflogSingle(DetectEngineCtx *);
+int RunModeIdsNflogWorkers(DetectEngineCtx *);
+void RunModeIdsNflogRegister(void);
+const char *RunModeIdsNflogGetDefaultMode(void);
 
-#ifdef HAVE_LUA
-int LuajitRegisterExtensions(lua_State *);
-
-void LuajitExtensionsMatchSetup(lua_State *lua_state,
-        DetectLuajitData *, DetectEngineThreadCtx *det_ctx,
-        Flow *f, int need_flow_lock);
-
-#endif /* HAVE_LUA */
-#endif
+#endif /* __RUNMODE_NFLOG_H__ */
