@@ -198,6 +198,8 @@
             e_magic_file="/usr/local/share/misc/magic.mgc"
             ;;
         *darwin*|*Darwin*)
+            LUA_PC_NAME="lua-5.1"
+            LUA_LIB_NAME="lua-5.1"
             CFLAGS="${CFLAGS} -DOS_DARWIN"
             CPPFLAGS="${CPPFLAGS} -I/opt/local/include"
             LDFLAGS="${LDFLAGS} -L/opt/local/lib"
@@ -1248,7 +1250,7 @@
     *-*-linux*)
     AC_ARG_WITH(libcap_ng_includes,
             [  --with-libcap_ng-includes=DIR  libcap_ng include directory],
-            [with_libcap-ng_includes="$withval"],[with_libcap_ng_includes=no])
+            [with_libcap_ng_includes="$withval"],[with_libcap_ng_includes=no])
     AC_ARG_WITH(libcap_ng_libraries,
             [  --with-libcap_ng-libraries=DIR    libcap_ng library directory],
             [with_libcap_ng_libraries="$withval"],[with_libcap_ng_libraries="no"])
