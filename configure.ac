@@ -1,7 +1,8 @@
 #TODO A better place for default CFLAGS?
 
 
-    AC_INIT(suricata, 2.0dev)
+    AC_INIT(suricata, 2.1dev)
+    m4_ifndef([AM_SILENT_RULES], [m4_define([AM_SILENT_RULES],[])])AM_SILENT_RULES([yes])
     AC_CONFIG_HEADERS([config.h])
     AC_CONFIG_SRCDIR([src/suricata.c])
     AC_CONFIG_MACRO_DIR(m4)
@@ -226,7 +227,7 @@
     # check if our target supports thread local storage
     AC_MSG_CHECKING(for thread local storage __thread support)
     AC_TRY_COMPILE([#include <stdlib.h>],
-        [ void somefunc (void) { static __thread int i; i = 1; i++; } ],
+        [ static __thread int i; i = 1; i++; ],
         [AC_DEFINE([TLS], [1], [Thread local storage])
          AC_MSG_RESULT([yes]) ],
         [AC_MSG_RESULT([no])])
