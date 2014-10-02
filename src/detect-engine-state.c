@@ -514,8 +514,6 @@ void DeStateDetectContinueDetection(ThreadVars *tv, DetectEngineCtx *de_ctx,
      * assume that we have an alert if engine == NULL */
     uint8_t total_matches = 0;
 
-    DeStateResetFileInspection(f, alproto, alstate, flags);
-
     if (AppLayerParserProtocolSupportsTxs(f->proto, alproto)) {
         FLOWLOCK_RDLOCK(f);
         alstate = FlowGetAppState(f);
@@ -524,6 +522,8 @@ void DeStateDetectContinueDetection(ThreadVars *tv, DetectEngineCtx *de_ctx,
             SCMutexUnlock(&f->de_state_m);
             return;
         }
+
+        DeStateResetFileInspection(f, alproto, alstate, flags);
 
         inspect_tx_id = AppLayerParserGetTransactionInspectId(f->alparser, flags);
         total_txs = AppLayerParserGetTxCnt(f->proto, alproto, alstate);
