@@ -1960,7 +1960,7 @@ static int ConfigGetCaptureValue(SCInstance *suri)
         }
     } else {
         if (ParseSizeStringU32(temp_default_packet_size, &default_packet_size) < 0) {
-            SCLogError(SC_ERR_SIZE_PARSE, "Error parsing max-pending-packets "
+            SCLogError(SC_ERR_SIZE_PARSE, "Error parsing default-packet-size "
                        "from conf file - %s.  Killing engine",
                        temp_default_packet_size);
             return TM_ECODE_FAILED;
