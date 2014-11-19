@@ -243,6 +243,8 @@ typedef struct AFPThreadVars_
     unsigned int frame_offset;
     int ring_size;
 
+    int packet_size;
+
 } AFPThreadVars;
 
 TmEcode ReceiveAFP(ThreadVars *, Packet *, void *, PacketQueue *, PacketQueue *);
@@ -1338,7 +1340,7 @@ frame size: TPACKET_ALIGN(snaplen + TPACKET_ALIGN(TPACKET_ALIGN(tp_hdrlen) + siz
 
      */
     int tp_hdrlen = sizeof(struct tpacket_hdr);
-    int snaplen = default_packet_size;
+    int snaplen = ptv->packet_size;
 
     ptv->req.tp_frame_size = TPACKET_ALIGN(snaplen +TPACKET_ALIGN(TPACKET_ALIGN(tp_hdrlen) + sizeof(struct sockaddr_ll) + ETH_HLEN) - ETH_HLEN);
     ptv->req.tp_block_size = getpagesize() << order;
@@ -1614,7 +1616,7 @@ TmEcode AFPSetBPFFilter(AFPThreadVars *ptv)
     SCLogInfo("Using BPF '%s' on iface '%s'",
               ptv->bpf_filter,
               ptv->iface);
-    if (pcap_compile_nopcap(default_packet_size,  /* snaplen_arg */
+    if (pcap_compile_nopcap(ptv->packet_size,  /* snaplen_arg */
                 ptv->datalink,    /* linktype_arg */
                 &filter,       /* program */
                 ptv->bpf_filter, /* const char *buf */
@@ -1675,6 +1677,7 @@ TmEcode ReceiveAFPThreadInit(ThreadVars *tv, void *initdata, void **data)
 
     ptv->tv = tv;
     ptv->cooked = 0;
+    ptv->packet_size = default_packet_size;
 
     strlcpy(ptv->iface, afpconfig->iface, AFP_IFACE_NAME_LENGTH);
     ptv->iface[AFP_IFACE_NAME_LENGTH - 1]= '\0';
