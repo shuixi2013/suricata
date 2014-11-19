@@ -142,6 +142,7 @@ void *ParseAFPConfig(const char *iface)
     aconf->bpf_filter = NULL;
     aconf->out_iface = NULL;
     aconf->copy_mode = AFP_COPY_MODE_NONE;
+    aconf->packet_size = 0;
 
     if (ConfGet("bpf-filter", &bpf_filter) == 1) {
         if (strlen(bpf_filter) > 0) {
@@ -308,6 +309,10 @@ void *ParseAFPConfig(const char *iface)
         SCLogInfo("Disabling promiscuous mode on iface %s",
                 aconf->iface);
         aconf->promisc = 0;
+    }
+
+    if ((ConfGetChildValueIntWithDefault(if_root, if_default, "packet-size", &value)) == 1) {
+        aconf->packet_size = value;
     }
 
     if (ConfGetChildValueWithDefault(if_root, if_default, "checksum-checks", &tmpctype) == 1) {

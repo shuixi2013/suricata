@@ -1677,7 +1677,13 @@ TmEcode ReceiveAFPThreadInit(ThreadVars *tv, void *initdata, void **data)
 
     ptv->tv = tv;
     ptv->cooked = 0;
-    ptv->packet_size = default_packet_size;
+
+    if (afpconfig->packet_size) {
+        ptv->packet_size = afpconfig->packet_size;
+    } else {
+        ptv->packet_size = default_packet_size;
+
+    }
 
     strlcpy(ptv->iface, afpconfig->iface, AFP_IFACE_NAME_LENGTH);
     ptv->iface[AFP_IFACE_NAME_LENGTH - 1]= '\0';

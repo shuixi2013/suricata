@@ -391,6 +391,11 @@ af-packet:
     # On busy system, this could help to set it to yes to recover from a packet drop
     # phase. This will result in some packets (at max a ring flush) being non treated.
     #use-emergency-flush: yes
+    # Packet size is the size of frame the interface can receive. Default is to have it equal to
+    # default_packet_size but you can set value here. It could be useful to set it to a higher
+    # if there is some offloading activated on the card. This setup can also be used to be able
+    # to set default_packet_size to 0 and avoid allocation when using zero copy.
+    #packet-size: 1522
     # recv buffer size, increase value could improve performance
     # buffer-size: 32768
     # Set to yes to disable promiscuous mode
@@ -426,6 +431,7 @@ af-packet:
   - interface: default
     #threads: 2
     #use-mmap: yes
+    #packet-size: 1522
 
 legacy:
   uricontent: enabled

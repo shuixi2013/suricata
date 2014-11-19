@@ -73,6 +73,7 @@ typedef struct AFPIfaceConfig_
     char *out_iface;
     SC_ATOMIC_DECLARE(unsigned int, ref);
     void (*DerefFunc)(void *);
+    int packet_size;
 } AFPIfaceConfig;
 
 /**
