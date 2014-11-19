@@ -1679,6 +1679,8 @@ TmEcode ReceiveAFPThreadInit(ThreadVars *tv, void *initdata, void **data)
     ptv->cooked = 0;
 
     if (afpconfig->packet_size) {
+        SCLogInfo("Forcing packet size to %u on '%s'", afpconfig->packet_size,
+                  afpconfig->iface);
         ptv->packet_size = afpconfig->packet_size;
     } else {
         ptv->packet_size = default_packet_size;
