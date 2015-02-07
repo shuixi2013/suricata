@@ -338,7 +338,7 @@ static void OutputFlowLogDeinit(OutputCtx *output_ctx)
     LogJsonFileCtx *flow_ctx = output_ctx->data;
     LogFileCtx *logfile_ctx = flow_ctx->json_ctx->file_ctx;
     LogFileFreeCtx(logfile_ctx);
-    SCFree(flow_ctx->json_ctx);
+    OutputJsonFreeCtx(flow_ctx->json_ctx);
     SCFree(flow_ctx);
     SCFree(output_ctx);
 }

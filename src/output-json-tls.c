@@ -220,7 +220,7 @@ static void OutputTlsLogDeinit(OutputCtx *output_ctx)
     OutputTlsCtx *tls_ctx = output_ctx->data;
     LogFileCtx *logfile_ctx = tls_ctx->json_ctx->file_ctx;
     LogFileFreeCtx(logfile_ctx);
-    SCFree(tls_ctx->json_ctx);
+    OutputJsonFreeCtx(tls_ctx->json_ctx);
     SCFree(tls_ctx);
     SCFree(output_ctx);
 }

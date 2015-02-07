@@ -185,7 +185,7 @@ static void OutputSshLogDeinit(OutputCtx *output_ctx)
     OutputSshCtx *ssh_ctx = output_ctx->data;
     LogFileCtx *logfile_ctx = ssh_ctx->json_ctx->file_ctx;
     LogFileFreeCtx(logfile_ctx);
-    SCFree(ssh_ctx->json_ctx);
+    OutputJsonFreeCtx(ssh_ctx->json_ctx);
     SCFree(ssh_ctx);
     SCFree(output_ctx);
 }

@@ -400,7 +400,7 @@ static void OutputHttpLogDeinit(OutputCtx *output_ctx)
     LogHttpFileCtx *http_ctx = output_ctx->data;
     LogFileCtx *logfile_ctx = http_ctx->json_ctx->file_ctx;
     LogFileFreeCtx(logfile_ctx);
-    SCFree(http_ctx->json_ctx);
+    OutputJsonFreeCtx(http_ctx->json_ctx);
     SCFree(http_ctx);
     SCFree(output_ctx);
 }

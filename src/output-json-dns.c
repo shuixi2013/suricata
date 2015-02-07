@@ -278,7 +278,7 @@ static void LogDnsLogDeInitCtx(OutputCtx *output_ctx)
 {
     LogDnsFileCtx *dnslog_ctx = (LogDnsFileCtx *)output_ctx->data;
     LogFileFreeCtx(dnslog_ctx->json_ctx->file_ctx);
-    SCFree(dnslog_ctx->json_ctx);
+    OutputJsonFreeCtx(dnslog_ctx->json_ctx);
     SCFree(dnslog_ctx);
     SCFree(output_ctx);
 }

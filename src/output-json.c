@@ -172,6 +172,22 @@ void JsonTcpFlags(uint8_t flags, json_t *js)
         json_object_set_new(js, "cwr", json_true());
 }
 
+
+void OutputJsonFreeCtx(OutputJsonCtx *ojc)
+{
+    if (ojc == NULL)
+        return;
+#if HAVE_LIBHIREDIS
+    if (ojc->json_out == ALERT_REDIS) {
+        if (ojc->redis_setup.command)
+            SCFree(ojc->redis_setup.command);
+        if (ojc->redis_setup.key)
+            SCFree(ojc->redis_setup.key);
+    }
+#endif
+    SCFree(ojc);
+}
+
 void CreateJSONFlowId(json_t *js, const Flow *f)
 {
     if (f == NULL)
@@ -439,14 +455,14 @@ OutputCtx *OutputJsonInitCtx(ConfNode *conf)
     json_ctx->file_ctx = LogFileNewCtx();
     if (unlikely(json_ctx->file_ctx == NULL)) {
         SCLogDebug("AlertJsonInitCtx: Could not create new LogFileCtx");
-        SCFree(json_ctx);
+        OutputJsonFreeCtx(json_ctx);
         return NULL;
     }
 
     OutputCtx *output_ctx = SCCalloc(1, sizeof(OutputCtx));
     if (unlikely(output_ctx == NULL)) {
         LogFileFreeCtx(json_ctx->file_ctx);
-        SCFree(json_ctx);
+        OutputJsonFreeCtx(json_ctx);
         return NULL;
     }
 
@@ -490,7 +506,7 @@ OutputCtx *OutputJsonInitCtx(ConfNode *conf)
 
             if (SCConfLogOpenGeneric(conf, json_ctx->file_ctx, DEFAULT_LOG_FILENAME) < 0) {
                 LogFileFreeCtx(json_ctx->file_ctx);
-                SCFree(json_ctx);
+                OutputJsonFreeCtx(json_ctx);
                 SCFree(output_ctx);
                 return NULL;
             }
@@ -598,7 +614,7 @@ static void OutputJsonDeInitCtx(OutputCtx *output_ctx)
     LogFileCtx *logfile_ctx = json_ctx->file_ctx;
     OutputUnregisterFileRotationFlag(&logfile_ctx->rotation_flag);
     LogFileFreeCtx(logfile_ctx);
-    SCFree(json_ctx);
+    OutputJsonFreeCtx(json_ctx);
     SCFree(output_ctx);
 }
 

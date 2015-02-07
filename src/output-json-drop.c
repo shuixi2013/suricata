@@ -194,7 +194,7 @@ static void JsonDropLogDeInitCtx(OutputCtx *output_ctx)
     LogDropFileCtx *drop_ctx = (LogDropFileCtx *)output_ctx->data;
     LogFileCtx *logfile_ctx = drop_ctx->json_ctx->file_ctx;
     LogFileFreeCtx(logfile_ctx);
-    SCFree(drop_ctx->json_ctx);
+    OutputJsonFreeCtx(drop_ctx->json_ctx);
     SCFree(drop_ctx);
     SCFree(output_ctx);
 }

@@ -66,7 +66,7 @@ static void OutputSmtpLogDeInitCtx(OutputCtx *output_ctx)
     OutputJsonEmailCtx *email_ctx = output_ctx->data;
     if (email_ctx != NULL) {
         LogFileFreeCtx(email_ctx->json_ctx->file_ctx);
-        SCFree(email_ctx->json_ctx);
+        OutputJsonFreeCtx(email_ctx->json_ctx);
         SCFree(email_ctx);
     }
     SCFree(output_ctx);

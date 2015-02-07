@@ -66,6 +66,8 @@ typedef struct OutputJsonCtx_ {
     RedisSetup redis_setup;
 } OutputJsonCtx;
 
+void OutputJsonFreeCtx(OutputJsonCtx *ojc);
+
 void CreateJSONFlowId(json_t *js, const Flow *f);
 void JsonTcpFlags(uint8_t flags, json_t *js);
 json_t *CreateJSONHeader(Packet *p, int direction_sensative, char *event_type);
