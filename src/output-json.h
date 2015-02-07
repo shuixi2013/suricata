@@ -49,11 +49,13 @@ typedef struct AlertJsonThread_ {
     LogFileCtx *file_ctx;
 } AlertJsonThread;
 
+#ifdef HAVE_LIBHIREDIS
 typedef struct RedisSetup_ {
     enum RedisMode mode;
     char *command;
     char *key;
 } RedisSetup;
+#endif
 
 /*
  * Global configuration context data
@@ -67,7 +69,9 @@ typedef struct OutputJsonCtx_ {
     };
     enum JsonOutput json_out;
     enum JsonFormat format;
+#ifdef HAVE_LIBHIREDIS
     RedisSetup redis_setup;
+#endif
 } OutputJsonCtx;
 
 void OutputJsonFreeCtx(OutputJsonCtx *ojc);
