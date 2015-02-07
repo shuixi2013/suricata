@@ -110,6 +110,9 @@ void OutputJsonRegisterTests (void)
 #else /* implied we do have JSON support */
 
 #include <jansson.h>
+#if HAVE_LIBHIREDIS
+#include <hiredis/hiredis.h>
+#endif
 
 #define DEFAULT_LOG_FILENAME "eve.json"
 #define DEFAULT_ALERT_SYSLOG_FACILITY_STR       "local0"
@@ -348,6 +351,28 @@ int OutputJSONBuffer(json_t *js, OutputJsonCtx *json_ctx, MemBuffer *buffer)
         json_ctx->file_ctx->Write((const char *)MEMBUFFER_BUFFER(buffer),
             MEMBUFFER_OFFSET(buffer), json_ctx->file_ctx);
     }
+#if HAVE_LIBHIREDIS
+    else if (json_ctx->json_out == ALERT_REDIS) {
+        /* FIXME go async here */
+        redisReply *reply = redisCommand(json_ctx->redis, "%s %s %s",
+                                         json_ctx->redis_setup.command,
+                                         json_ctx->redis_setup.key,
+                                         js_s);
+        switch (reply->type) {
+            case REDIS_REPLY_ERROR:
+                SCLogWarning(SC_WARN_NO_UNITTESTS, "Redis error: %s", reply->str);
+                break;
+            case REDIS_REPLY_INTEGER:
+                SCLogDebug("Redis integer %lld", reply->integer);
+                break;
+            default:
+                SCLogError(SC_ERR_INVALID_VALUE,
+                           "Redis default triggered with %d", reply->type);
+                break;
+        }
+        freeReplyObject(reply);
+    }
+#endif
     SCMutexUnlock(&json_ctx->file_ctx->fp_mutex);
     free(js_s);
     return 0;
@@ -446,6 +471,14 @@ OutputCtx *OutputJsonInitCtx(ConfNode *conf)
                 json_ctx->json_out = ALERT_UNIX_DGRAM;
             } else if (strcmp(output_s, "unix_stream") == 0) {
                 json_ctx->json_out = ALERT_UNIX_STREAM;
+            } else if (strcmp(output_s, "redis") == 0) {
+#if HAVE_LIBHIREDIS
+                json_ctx->json_out = ALERT_REDIS;
+#else
+                SCLogError(SC_ERR_INVALID_ARGUMENT,
+                           "redis JSON output option is not compiled");
+                exit(EXIT_FAILURE);
+#endif
             } else {
                 SCLogError(SC_ERR_INVALID_ARGUMENT,
                            "Invalid JSON output option: %s", output_s);
@@ -504,6 +537,45 @@ OutputCtx *OutputJsonInitCtx(ConfNode *conf)
             openlog(ident, LOG_PID|LOG_NDELAY, facility);
 
         }
+#if HAVE_LIBHIREDIS
+        else if (json_ctx->json_out == ALERT_REDIS) {
+            ConfNode *redis_node = ConfNodeLookupChild(conf, "redis");
+            const char *redis_server = NULL;
+            const char *redis_port = NULL;
+            const char *redis_mode = NULL;
+            const char *redis_key = NULL;
+
+            if (redis_node) {
+                redis_server = ConfNodeLookupChildValue(redis_node, "server");
+                redis_port =  ConfNodeLookupChildValue(redis_node, "port");
+                redis_mode =  ConfNodeLookupChildValue(redis_node, "mode");
+                redis_key =  ConfNodeLookupChildValue(redis_node, "key");
+            }
+            if (!redis_server) {
+                redis_server = "127.0.0.1";
+                SCLogInfo("Using default redis server (127.0.0.1)");
+            }
+            if (!redis_port)
+                redis_port = "6379";
+            if (!redis_mode)
+                redis_mode = "list";
+            if (!redis_key)
+                redis_key = "suricata";
+            json_ctx->redis_setup.key = SCStrdup(redis_key);
+            if (!strcmp(redis_mode, "list")) {
+                json_ctx->redis_setup.command = SCStrdup("LPUSH");
+            } else {
+                json_ctx->redis_setup.command = SCStrdup("PUBLISH");
+            }
+            redisContext *c = redisConnect(redis_server, atoi(redis_port));
+            if (c != NULL && c->err) {
+                SCLogError(SC_ERR_SOCKET, "Error: %s\n", c->errstr);
+                // FIXME handle error
+                exit(1);
+            }
+            json_ctx->redis = c;
+        }
+#endif
 
         const char *sensor_id_s = ConfNodeLookupChildValue(conf, "sensor-id");
         if (sensor_id_s != NULL) {

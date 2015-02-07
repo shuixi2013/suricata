@@ -31,25 +31,39 @@ void TmModuleOutputJsonRegister (void);
 #include "suricata-common.h"
 #include "util-buffer.h"
 #include "util-logopenfile.h"
+#include "hiredis/hiredis.h"
 
 enum JsonOutput { ALERT_FILE,
                   ALERT_SYSLOG,
                   ALERT_UNIX_DGRAM,
-                  ALERT_UNIX_STREAM };
+                  ALERT_UNIX_STREAM,
+                  ALERT_REDIS, };
 enum JsonFormat { COMPACT, INDENT };
+
+enum RedisMode { REDIS_LIST, REDIS_CHANNEL };
 
 typedef struct AlertJsonThread_ {
     /** LogFileCtx has the pointer to the file and a mutex to allow multithreading */
     LogFileCtx *file_ctx;
 } AlertJsonThread;
 
+typedef struct RedisSetup_ {
+    enum RedisMode mode;
+    char *command;
+    char *key;
+} RedisSetup;
+
 /*
  * Global configuration context data
  */
 typedef struct OutputJsonCtx_ {
-    LogFileCtx *file_ctx;
+    union {
+        LogFileCtx *file_ctx;
+        redisContext *redis;
+    };
     enum JsonOutput json_out;
     enum JsonFormat format;
+    RedisSetup redis_setup;
 } OutputJsonCtx;
 
 void CreateJSONFlowId(json_t *js, const Flow *f);
