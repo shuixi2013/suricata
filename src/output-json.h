@@ -31,7 +31,9 @@ void TmModuleOutputJsonRegister (void);
 #include "suricata-common.h"
 #include "util-buffer.h"
 #include "util-logopenfile.h"
+#ifdef HAVE_LIBHIREDIS
 #include "hiredis/hiredis.h"
+#endif
 
 enum JsonOutput { ALERT_FILE,
                   ALERT_SYSLOG,
@@ -59,7 +61,9 @@ typedef struct RedisSetup_ {
 typedef struct OutputJsonCtx_ {
     union {
         LogFileCtx *file_ctx;
+#ifdef HAVE_LIBHIREDIS
         redisContext *redis;
+#endif
     };
     enum JsonOutput json_out;
     enum JsonFormat format;
