@@ -72,6 +72,7 @@ typedef struct OutputJsonCtx_ {
 #ifdef HAVE_LIBHIREDIS
     RedisSetup redis_setup;
 #endif
+    char *sensor_name;
 } OutputJsonCtx;
 
 void OutputJsonFreeCtx(OutputJsonCtx *ojc);

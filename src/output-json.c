@@ -185,6 +185,8 @@ void OutputJsonFreeCtx(OutputJsonCtx *ojc)
             SCFree(ojc->redis_setup.key);
     }
 #endif
+    if (ojc->sensor_name)
+        SCFree(ojc->sensor_name);
     SCFree(ojc);
 }
 
@@ -348,7 +350,13 @@ json_t *CreateJSONHeader(Packet *p, int direction_sensitive, char *event_type)
 
 int OutputJSONBuffer(json_t *js, OutputJsonCtx *json_ctx, MemBuffer *buffer)
 {
-    char *js_s = json_dumps(js,
+    char *js_s = NULL;
+
+    if (json_ctx->json_out == ALERT_REDIS) {
+        json_object_set_new(js, "host", json_string(json_ctx->sensor_name));
+    }
+
+    js_s = json_dumps(js,
                             JSON_PRESERVE_ORDER|JSON_COMPACT|JSON_ENSURE_ASCII|
 #ifdef JSON_ESCAPE_SLASH
                             JSON_ESCAPE_SLASH
@@ -556,10 +564,18 @@ OutputCtx *OutputJsonInitCtx(ConfNode *conf)
 #if HAVE_LIBHIREDIS
         else if (json_ctx->json_out == ALERT_REDIS) {
             ConfNode *redis_node = ConfNodeLookupChild(conf, "redis");
+            const char *sensor_name = ConfNodeLookupChildValue(conf, "sensor-name");
             const char *redis_server = NULL;
             const char *redis_port = NULL;
             const char *redis_mode = NULL;
             const char *redis_key = NULL;
+
+            if (!sensor_name) {
+                char hostname[1024];
+                gethostname(hostname, 1023);
+                sensor_name = hostname;
+            }
+            json_ctx->sensor_name = SCStrdup(sensor_name);
 
             if (redis_node) {
                 redis_server = ConfNodeLookupChildValue(redis_node, "server");
