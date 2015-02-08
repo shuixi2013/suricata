@@ -576,6 +576,10 @@ OutputCtx *OutputJsonInitCtx(ConfNode *conf)
                 sensor_name = hostname;
             }
             json_ctx->sensor_name = SCStrdup(sensor_name);
+            if (!json_ctx->sensor_name) {
+                SCLogError(SC_ERR_MEM_ALLOC, "Unable to allocate sensor name");
+                exit(EXIT_FAILURE);
+            }
 
             if (redis_node) {
                 redis_server = ConfNodeLookupChildValue(redis_node, "server");
@@ -594,16 +598,28 @@ OutputCtx *OutputJsonInitCtx(ConfNode *conf)
             if (!redis_key)
                 redis_key = "suricata";
             json_ctx->redis_setup.key = SCStrdup(redis_key);
+            if (!json_ctx->redis_setup.key) {
+                SCLogError(SC_ERR_MEM_ALLOC, "Unable to allocate redis key name");
+                exit(EXIT_FAILURE);
+            }
+
             if (!strcmp(redis_mode, "list")) {
                 json_ctx->redis_setup.command = SCStrdup("LPUSH");
+                if (!json_ctx->redis_setup.command) {
+                    SCLogError(SC_ERR_MEM_ALLOC, "Unable to allocate redis key command");
+                    exit(EXIT_FAILURE);
+                }
             } else {
                 json_ctx->redis_setup.command = SCStrdup("PUBLISH");
+                if (!json_ctx->redis_setup.command) {
+                    SCLogError(SC_ERR_MEM_ALLOC, "Unable to allocate redis key command");
+                    exit(EXIT_FAILURE);
+                }
             }
             redisContext *c = redisConnect(redis_server, atoi(redis_port));
             if (c != NULL && c->err) {
-                SCLogError(SC_ERR_SOCKET, "Error: %s\n", c->errstr);
-                // FIXME handle error
-                exit(1);
+                SCLogError(SC_ERR_SOCKET, "Error connecting to redis server: %s\n", c->errstr);
+                exit(EXIT_FAILURE);
             }
             json_ctx->redis = c;
         }
