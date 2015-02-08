@@ -26,8 +26,6 @@
 
 void TmModuleOutputJsonRegister (void);
 
-#ifdef HAVE_LIBJANSSON
-
 #include "suricata-common.h"
 #include "util-buffer.h"
 #include "util-logopenfile.h"
@@ -74,6 +72,8 @@ typedef struct OutputJsonCtx_ {
 #endif
     char *sensor_name;
 } OutputJsonCtx;
+
+#ifdef HAVE_LIBJANSSON
 
 void OutputJsonFreeCtx(OutputJsonCtx *ojc);
 
