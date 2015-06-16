@@ -240,6 +240,7 @@ void PacketPoolReturnPacket(Packet *p)
         /* Push back onto this thread's own stack, so no locking. */
         p->next = my_pool->head;
         my_pool->head = p;
+        SCCondSignal(&pool->return_stack.cond);
     } else {
         PktPool *pending_pool = my_pool->pending_pool;
         if (pending_pool == NULL) {
