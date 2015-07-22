@@ -219,6 +219,12 @@ void *ParseAFPConfig(const char *iface)
                 aconf->iface);
         aconf->flags |= AFP_RING_MODE;
     }
+    (void)ConfGetChildValueBoolWithDefault(if_root, if_default, "tpacket-v3", (int *)&boolval);
+    if (boolval) {
+        SCLogInfo("Enabling tpacket v3 capture on iface %s",
+                aconf->iface);
+        aconf->flags |= AFP_TPACKET_V3;
+    }
     (void)ConfGetChildValueBoolWithDefault(if_root, if_default, "use-emergency-flush", (int *)&boolval);
     if (boolval) {
         SCLogInfo("Enabling ring emergency flush on iface %s",

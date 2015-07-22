@@ -1696,8 +1696,6 @@ static int AFPCreateSocket(AFPThreadVars *ptv, char *devname, int verbose)
         goto frame_err;
     }
 
-    /* FIXME inherit from config variable */
-    ptv->flags |= AFP_TPACKET_V3;
     if (ptv->flags & AFP_RING_MODE) {
         int val;
         unsigned int len = sizeof(val);
