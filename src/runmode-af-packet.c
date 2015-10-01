@@ -213,7 +213,7 @@ void *ParseAFPConfig(const char *iface)
     if (boolval) {
         SCLogInfo("Enabling mmaped capture on iface %s",
                 aconf->iface);
-        aconf->flags |= AFP_RING_MODE;
+        aconf->flags |= AFP_RING_MODE|AFP_ZERO_COPY;
     }
     (void)ConfGetChildValueBoolWithDefault(if_root, if_default, "use-emergency-flush", (int *)&boolval);
     if (boolval) {
@@ -221,7 +221,12 @@ void *ParseAFPConfig(const char *iface)
                 aconf->iface);
         aconf->flags |= AFP_EMERGENCY_MODE;
     }
-
+    (void)ConfGetChildValueBoolWithDefault(if_root, if_default, "zero-copy", (int *)&boolval);
+    if (!boolval) {
+        SCLogInfo("Disabling zero copy on iface %s",
+                aconf->iface);
+        aconf->flags &= ~AFP_ZERO_COPY;
+    }
 
     aconf->copy_mode = AFP_COPY_MODE_NONE;
     if (ConfGetChildValueWithDefault(if_root, if_default, "copy-mode", &copymodestr) == 1) {

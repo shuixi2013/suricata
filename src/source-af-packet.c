@@ -1723,18 +1723,16 @@ TmEcode ReceiveAFPThreadInit(ThreadVars *tv, void *initdata, void **data)
     char *active_runmode = RunmodeGetActive();
 
     if (active_runmode && !strcmp("workers", active_runmode)) {
-        ptv->flags |= AFP_ZERO_COPY;
-        SCLogInfo("Enabling zero copy mode");
+        if (afpconfig->flags & AFP_ZERO_COPY) {
+            ptv->flags |= AFP_ZERO_COPY;
+            SCLogInfo("Enabling zero copy mode");
+        } else {
+            ptv->flags &= ~AFP_ZERO_COPY;
+            SCLogInfo("DIsabling zero copy mode");
+        }
     } else {
         /* If we are using copy mode we need a lock */
         ptv->flags |= AFP_SOCK_PROTECT;
-    }
-
-    /* If we are in RING mode, then we can use ZERO copy
-     * by using the data release mechanism */
-    if (ptv->flags & AFP_RING_MODE) {
-        ptv->flags |= AFP_ZERO_COPY;
-        SCLogInfo("Enabling zero copy mode by using data release call");
     }
 
     ptv->copy_mode = afpconfig->copy_mode;
