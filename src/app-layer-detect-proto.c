@@ -280,7 +280,7 @@ static AppProto AppLayerProtoDetectPMGetProto(AppLayerProtoDetectThreadCtx *tctx
 
 static AppLayerProtoDetectProbingParserPort *AppLayerProtoDetectGetProbingParsers(AppLayerProtoDetectProbingParser *pp,
                                                                                   uint8_t ipproto,
-                                                                                  uint16_t port)
+                                                                                  uint16_t port, uint8_t direction)
 {
     AppLayerProtoDetectProbingParserPort *pp_port = NULL;
 
@@ -303,6 +303,24 @@ static AppLayerProtoDetectProbingParserPort *AppLayerProtoDetectGetProbingParser
     }
 
  end:
+    if (StreamTcpMidstreamIsEnabled() && direction & STREAM_TOSERVER) {
+        if (pp_port && pp_port->dp == NULL && pp_port->sp != NULL) {
+            pp_port->dp = pp_port->sp;
+            pp_port->sp = NULL;
+        } else if (pp_port && pp_port->sp == NULL && pp_port->dp != NULL) {
+            pp_port->sp = pp_port->dp;
+            pp_port->dp = NULL;
+        }
+    } else if (StreamTcpMidstreamIsEnabled() && STREAM_TOCLIENT) {
+        if (pp_port && pp_port->dp == NULL && pp_port->sp != NULL) {
+            pp_port->dp = pp_port->sp;
+            pp_port->sp = NULL;
+        } else if (pp_port && pp_port->sp == NULL && pp_port->dp != NULL) {
+            pp_port->sp = pp_port->dp;
+            pp_port->dp = NULL;
+        }
+    }
+
     SCReturnPtr(pp_port, "AppLayerProtoDetectProbingParserPort *");
 }
 
@@ -328,7 +346,7 @@ static AppProto AppLayerProtoDetectPPGetProto(Flow *f,
 
     if (direction & STREAM_TOSERVER) {
         /* first try the destination port */
-        pp_port_dp = AppLayerProtoDetectGetProbingParsers(alpd_ctx.ctx_pp, ipproto, f->dp);
+        pp_port_dp = AppLayerProtoDetectGetProbingParsers(alpd_ctx.ctx_pp, ipproto, f->dp, direction);
         alproto_masks = &f->probing_parser_toserver_alproto_masks;
         if (pp_port_dp != NULL) {
             SCLogDebug("toserver - Probing parser found for destination port %"PRIu16, f->dp);
@@ -340,7 +358,7 @@ static AppProto AppLayerProtoDetectPPGetProto(Flow *f,
                        f->dp);
         }
 
-        pp_port_sp = AppLayerProtoDetectGetProbingParsers(alpd_ctx.ctx_pp, ipproto, f->sp);
+        pp_port_sp = AppLayerProtoDetectGetProbingParsers(alpd_ctx.ctx_pp, ipproto, f->sp, direction);
         if (pp_port_sp != NULL) {
             SCLogDebug("toserver - Probing parser found for source port %"PRIu16, f->sp);
 
@@ -352,11 +370,11 @@ static AppProto AppLayerProtoDetectPPGetProto(Flow *f,
         }
     } else {
         /* first try the destination port */
-        pp_port_dp = AppLayerProtoDetectGetProbingParsers(alpd_ctx.ctx_pp, ipproto, f->dp);
+        pp_port_dp = AppLayerProtoDetectGetProbingParsers(alpd_ctx.ctx_pp, ipproto, f->dp, direction);
         alproto_masks = &f->probing_parser_toclient_alproto_masks;
         if (pp_port_dp != NULL) {
             SCLogDebug("toclient - Probing parser found for destination port %"PRIu16, f->dp);
-
+ 
             /* found based on destination port, so use dp registration */
             pe1 = pp_port_dp->dp;
         } else {
@@ -364,10 +382,11 @@ static AppProto AppLayerProtoDetectPPGetProto(Flow *f,
                        f->dp);
         }
 
-        pp_port_sp = AppLayerProtoDetectGetProbingParsers(alpd_ctx.ctx_pp, ipproto, f->sp);
+        pp_port_sp = AppLayerProtoDetectGetProbingParsers(alpd_ctx.ctx_pp, ipproto, f->sp, direction);
         if (pp_port_sp != NULL) {
             SCLogDebug("toclient - Probing parser found for source port %"PRIu16, f->sp);
 
+            /* found based on source port, so use sp registration */
             pe2 = pp_port_sp->sp;
         } else {
             SCLogDebug("toclient - No probing parser registered for source port %"PRIu16,
