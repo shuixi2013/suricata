@@ -912,21 +912,7 @@ int AppLayerParserParse(AppLayerParserThreadCtx *alp_tctx, Flow *f, AppProto alp
     /* invoke the recursive parser, but only on data. We may get empty msgs on EOF */
     if (input_len > 0 || (flags & STREAM_EOF)) {
         /* invoke the parser */
-        int rflags;
-        if (StreamTcpMidstreamIsEnabled()) {
-            if (flags & STREAM_TOSERVER) {
-                SCLogInfo("flags & STREAM_TOSERVER");
-                rflags = 1;
-            } else {
-                SCLogInfo("flags & STREAM_TOCLIENT");
-                rflags = 0;
-            }
-        } else {
-            rflags = (flags & STREAM_TOSERVER) ? 0 : 1;
-        }
-
-        SCLogInfo("rflags %d", rflags);
-        if (p->Parser[rflags](f, alstate, pstate,
+        if (p->Parser[(flags & STREAM_TOSERVER) ? 0 : 1](f, alstate, pstate,
                 input, input_len,
                 alp_tctx->alproto_local_storage[f->protomap][alproto]) < 0)
         {
