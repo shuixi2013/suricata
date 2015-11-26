@@ -364,6 +364,7 @@ static AppProto AppLayerProtoDetectPPGetProto(Flow *f,
 
             /* found based on source port, so use sp registration */
             pe2 = pp_port_sp->sp;
+            f->reverted = 1;
         } else {
             SCLogDebug("toserver - No probing parser registered for source port %"PRIu16,
                     f->sp);
@@ -388,6 +389,7 @@ static AppProto AppLayerProtoDetectPPGetProto(Flow *f,
 
             /* found based on source port, so use sp registration */
             pe2 = pp_port_sp->sp;
+            f->reverted = 1;
         } else {
             SCLogDebug("toclient - No probing parser registered for source port %"PRIu16,
                         f->sp);
