@@ -253,6 +253,12 @@ static int DetectFilestoreMatch (ThreadVars *t, DetectEngineThreadCtx *det_ctx, 
         SCReturnInt(1);
     }
 
+    if (f->protoctx != NULL && f->proto == IPPROTO_TCP) {
+        /* set filestore depth for stream reassembling */
+        TcpSession *ssn = (TcpSession *)f->protoctx;
+        StreamTcpSetReassemblyDepth(ssn, FileReassemblyDepth());
+    }
+
     /* file can be NULL when a rule with filestore scope > file
      * matches. */
     if (file != NULL) {
