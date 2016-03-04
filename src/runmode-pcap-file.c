@@ -222,7 +222,7 @@ int RunModeFilePcapAutoFp(void)
 
         SCLogDebug("tname %s, qname %s", tname, qname);
 
-        char *thread_name = SCStrdup(tname);
+        char *thread_name = tname;
         if (unlikely(thread_name == NULL)) {
             SCLogError(SC_ERR_RUNMODE, "failed to strdup thread name");
             exit(EXIT_FAILURE);
@@ -254,7 +254,7 @@ int RunModeFilePcapAutoFp(void)
             TmSlotSetFuncAppend(tv_detect_ncpu, tm_module, NULL);
         }
 
-        char *thread_group_name = SCStrdup("Detect");
+        char *thread_group_name = "Detect";
         if (unlikely(thread_group_name == NULL)) {
             SCLogError(SC_ERR_RUNMODE, "error allocating memory");
             exit(EXIT_FAILURE);
