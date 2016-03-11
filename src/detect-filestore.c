@@ -314,7 +314,7 @@ static int DetectFilestoreSetup (DetectEngineCtx *de_ctx, Signature *s, char *st
 
     DetectFilestoreData *fd = NULL;
     SigMatch *sm = NULL;
-    char *args[3] = {NULL,NULL,NULL};
+    char *args[2] = {NULL,NULL};
 #define MAX_SUBSTRINGS 30
     int ret = 0, res = 0;
     int ov[MAX_SUBSTRINGS];
@@ -329,7 +329,7 @@ static int DetectFilestoreSetup (DetectEngineCtx *de_ctx, Signature *s, char *st
         SCLogDebug("str %s", str);
 
         ret = pcre_exec(parse_regex, parse_regex_study, str, strlen(str), 0, 0, ov, MAX_SUBSTRINGS);
-        if (ret < 1 || ret > 4) {
+        if (ret < 1 || ret > 3) {
             SCLogError(SC_ERR_PCRE_MATCH, "parse error, ret %" PRId32 ", string %s", ret, str);
             goto error;
         }
@@ -350,14 +350,6 @@ static int DetectFilestoreSetup (DetectEngineCtx *de_ctx, Signature *s, char *st
                     goto error;
                 }
                 args[1] = (char *)str_ptr;
-            }
-            if (ret > 3) {
-                res = pcre_get_substring((char *)str, ov, MAX_SUBSTRINGS, 3, &str_ptr);
-                if (res < 0) {
-                    SCLogError(SC_ERR_PCRE_GET_SUBSTRING, "pcre_get_substring failed");
-                    goto error;
-                }
-                args[2] = (char *)str_ptr;
             }
         }
 
