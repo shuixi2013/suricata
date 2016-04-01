@@ -927,7 +927,6 @@ static inline int AFPParsePacketV3(AFPThreadVars *ptv, struct block_desc *pbd, s
 
     ptv->pkts++;
     ptv->bytes += ppd->tp_len;
-    (void) SC_ATOMIC_ADD(ptv->livedev->pkts, 1);
     p->livedev = ptv->livedev;
 
     /* add forged header */
