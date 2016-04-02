@@ -338,6 +338,11 @@ OutputCtx *OutputTlsLogInitSub(ConfNode *conf, OutputCtx *parent_ctx)
  */
 static int JsonTlsCondition(ThreadVars *tv, const Packet *p)
 {
+
+    if (p->applayerflags & PACKET_APPLAYER_LOGGED) {
+        return FALSE;
+    }
+
     if (p->flow == NULL) {
         return FALSE;
     }
@@ -365,8 +370,8 @@ static int JsonTlsCondition(ThreadVars *tv, const Packet *p)
             ssl_state->server_connp.cert0_subject == NULL)
         goto dontlog;
 
-    /* todo: logic to log once */
-
+    /* Backup the fact we have logged */
+    p->flow->applayerflags |= PACKET_APPLAYER_LOGGED;
     FLOWLOCK_UNLOCK(p->flow);
     return TRUE;
 dontlog:

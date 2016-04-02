@@ -278,6 +278,11 @@ OutputCtx *OutputSshLogInitSub(ConfNode *conf, OutputCtx *parent_ctx)
  */
 static int JsonSshCondition(ThreadVars *tv, const Packet *p)
 {
+
+    if (p->applayerflags & PACKET_APPLAYER_LOGGED) {
+        return FALSE;
+    }
+
     if (p->flow == NULL) {
         return FALSE;
     }
@@ -305,8 +310,8 @@ static int JsonSshCondition(ThreadVars *tv, const Packet *p)
         ssh_state->srv_hdr.software_version == NULL)
         goto dontlog;
 
-    /* todo: logic to log once */
-
+    /* Backup the fact we have logged */
+    p->flow->applayerflags |= PACKET_APPLAYER_LOGGED;
     FLOWLOCK_UNLOCK(p->flow);
     return TRUE;
 dontlog:

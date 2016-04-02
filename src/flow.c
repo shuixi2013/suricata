@@ -273,6 +273,9 @@ void FlowHandlePacketUpdate(Flow *f, Packet *p)
     /* Point the Packet at the Flow */
     FlowReference(&p->flow, f);
 
+    /* Copy applicatoin layer infos from flag */
+    p->applayerflags = f->applayerflags;
+ 
     /* update flags and counters */
     if (FlowGetPacketDirection(f, p) == TOSERVER) {
         f->todstpktcnt++;
