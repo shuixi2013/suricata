@@ -347,14 +347,15 @@ static int JsonTlsCondition(ThreadVars *tv, const Packet *p)
         return FALSE;
     }
 
+    if (p->alproto != ALPROTO_TLS) {
+        return FALSE;
+    }
+
     if (!(PKT_IS_TCP(p))) {
         return FALSE;
     }
 
     FLOWLOCK_RDLOCK(p->flow);
-    uint16_t proto = FlowGetAppProtocol(p->flow);
-    if (proto != ALPROTO_TLS)
-        goto dontlog;
 
     SSLState *ssl_state = (SSLState *)FlowGetAppState(p->flow);
     if (ssl_state == NULL) {
