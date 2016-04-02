@@ -398,6 +398,7 @@ typedef struct Packet_
 
     /* FIXME reorder */
     uint8_t applayerflags;
+    uint16_t alproto;
 
     /* Pkt Flags */
     uint32_t flags;

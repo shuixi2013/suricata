@@ -287,15 +287,11 @@ static int JsonSshCondition(ThreadVars *tv, const Packet *p)
         return FALSE;
     }
 
-    if (!(PKT_IS_TCP(p))) {
+    if (p->alproto != ALPROTO_SSH) {
         return FALSE;
     }
 
     FLOWLOCK_RDLOCK(p->flow);
-    uint16_t proto = FlowGetAppProtocol(p->flow);
-    if (proto != ALPROTO_SSH)
-        goto dontlog;
-
     SshState *ssh_state = (SshState *)FlowGetAppState(p->flow);
     if (ssh_state == NULL) {
         SCLogDebug("no ssh state, so no logging");
