@@ -374,6 +374,9 @@ static int JsonDropLogCondition(ThreadVars *tv, const Packet *p)
         SCLogDebug("drop log doesn't log pseudo packets");
         return FALSE;
     }
+    if (!(p->applayerflags & PACKET_APPLAYER_DROP_LOGGED)) {
+        return FALSE;
+    }
 
     if (p->flow != NULL) {
         int ret = FALSE;
