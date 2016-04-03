@@ -275,7 +275,6 @@ void FlowHandlePacketUpdate(Flow *f, Packet *p)
 
     /* Copy applicatoin layer infos from flag */
     p->applayerflags = f->applayerflags;
-    /* FIXME this may be updated after data inspection */
     p->alproto = f->alproto;
  
     /* update flags and counters */
