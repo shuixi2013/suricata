@@ -542,6 +542,9 @@ Flow *FlowGetFlowFromHashByPacket(const Packet *p)
         f->flow_hash = hash;
         f->fb = fb;
         /* update the last seen timestamp of this flow */
+        if (timercmp(&p->ts, &f->lastts, <)) {
+            SCLogNotice("Unordered packets");
+        } 
         COPY_TIMESTAMP(&p->ts,&f->lastts);
 
     }
@@ -612,6 +615,9 @@ Flow *FlowLookupFlowFromHash(const Packet *p)
                 /* found our flow, lock & return */
                 FLOWLOCK_WRLOCK(f);
                 /* update the last seen timestamp of this flow */
+                if (timercmp(&p->ts, &f->lastts, <)) {
+                    SCLogNotice("Unordered packets");
+                } 
                 COPY_TIMESTAMP(&p->ts,&f->lastts);
 
                 FBLOCK_UNLOCK(fb);
@@ -623,6 +629,9 @@ Flow *FlowLookupFlowFromHash(const Packet *p)
     /* lock & return */
     FLOWLOCK_WRLOCK(f);
     /* update the last seen timestamp of this flow */
+    if (timercmp(&p->ts, &f->lastts, <)) {
+        SCLogNotice("Unordered packets");
+    } 
     COPY_TIMESTAMP(&p->ts,&f->lastts);
 
     FBLOCK_UNLOCK(fb);
@@ -680,6 +689,9 @@ Flow *FlowGetFlowFromHash(ThreadVars *tv, DecodeThreadVars *dtv, const Packet *p
         f->fb = fb;
 
         /* update the last seen timestamp of this flow */
+        if (timercmp(&p->ts, &f->lastts, <)) {
+            SCLogNotice("Unordered packets");
+        } 
         COPY_TIMESTAMP(&p->ts,&f->lastts);
 
         FBLOCK_UNLOCK(fb);
@@ -693,7 +705,6 @@ Flow *FlowGetFlowFromHash(ThreadVars *tv, DecodeThreadVars *dtv, const Packet *p
     /* see if this is the flow we are looking for */
     if (FlowCompare(f, p) == 0) {
         Flow *pf = NULL; /* previous flow */
-
         while (f) {
             FlowHashCountIncr;
 
@@ -719,6 +730,9 @@ Flow *FlowGetFlowFromHash(ThreadVars *tv, DecodeThreadVars *dtv, const Packet *p
                 f->fb = fb;
 
                 /* update the last seen timestamp of this flow */
+                if (timercmp(&p->ts, &f->lastts, <)) {
+                    SCLogNotice("Unordered packets");
+                } 
                 COPY_TIMESTAMP(&p->ts,&f->lastts);
 
                 FBLOCK_UNLOCK(fb);
@@ -747,6 +761,9 @@ Flow *FlowGetFlowFromHash(ThreadVars *tv, DecodeThreadVars *dtv, const Packet *p
                 /* found our flow, lock & return */
                 FLOWLOCK_WRLOCK(f);
                 /* update the last seen timestamp of this flow */
+                if (timercmp(&p->ts, &f->lastts, <)) {
+                    SCLogNotice("Unordered packets");
+                } 
                 COPY_TIMESTAMP(&p->ts,&f->lastts);
 
                 FBLOCK_UNLOCK(fb);
@@ -759,6 +776,9 @@ Flow *FlowGetFlowFromHash(ThreadVars *tv, DecodeThreadVars *dtv, const Packet *p
     /* lock & return */
     FLOWLOCK_WRLOCK(f);
     /* update the last seen timestamp of this flow */
+    if (timercmp(&p->ts, &f->lastts, <)) {
+        SCLogNotice("Unordered packets %ld.%ld vs %ld.%ld", p->ts.tv_sec, p->ts.tv_usec, f->lastts.tv_sec, f->lastts.tv_usec);
+    } 
     COPY_TIMESTAMP(&p->ts,&f->lastts);
 
     FBLOCK_UNLOCK(fb);
