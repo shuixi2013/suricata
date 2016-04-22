@@ -94,6 +94,8 @@
 #include <sys/mman.h>
 #endif
 
+#include <linux/net_tstamp.h>
+
 #endif /* HAVE_AF_PACKET */
 
 extern int max_pending_packets;
@@ -1651,6 +1653,9 @@ static int AFPSetupRing(AFPThreadVars *ptv, char *devname)
                 strerror(errno));
         return AFP_FATAL_ERROR;
     }
+
+    int req = SOF_TIMESTAMPING_RAW_HARDWARE;
+    setsockopt(ptv->socket, SOL_PACKET, PACKET_TIMESTAMP, (void *) &req, sizeof(req));
 
     /* Allocate RX ring */
 #ifdef HAVE_TPACKET_V3
