@@ -777,7 +777,7 @@ Flow *FlowGetFlowFromHash(ThreadVars *tv, DecodeThreadVars *dtv, const Packet *p
     FLOWLOCK_WRLOCK(f);
     /* update the last seen timestamp of this flow */
     if (timercmp(&p->ts, &f->lastts, <)) {
-        SCLogNotice("Unordered packets %ld.%06ld vs %ld.%06ld on %p handled by %s (%d)", p->ts.tv_sec, p->ts.tv_usec, f->lastts.tv_sec, f->lastts.tv_usec, f, tv->name, f->thread_id);
+        SCLogNotice("Unordered packets %ld.%06ld vs %ld.%06ld on %p handled by %s (%d) rxhash: %u", p->ts.tv_sec, p->ts.tv_usec, f->lastts.tv_sec, f->lastts.tv_usec, f, tv->name, f->thread_id, p->rxhash);
     } 
     COPY_TIMESTAMP(&p->ts,&f->lastts);
 
