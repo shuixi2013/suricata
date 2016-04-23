@@ -397,6 +397,8 @@ typedef struct Packet_
     /* Pkt Flags */
     uint32_t flags;
 
+    uint32_t rxhash;
+
     struct Flow_ *flow;
 
     struct timeval ts;

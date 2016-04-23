@@ -953,6 +953,7 @@ static inline int AFPParsePacketV3(AFPThreadVars *ptv, struct tpacket_block_desc
     p->ts.tv_usec = ppd->tp_nsec/1000;
     SCLogDebug("pktlen: %" PRIu32 " (pkt %p, pkt data %p)",
             GET_PKT_LEN(p), p, GET_PKT_DATA(p));
+    p->rxhash = ppd->hv1.tp_rxhash;
 
     /* We only check for checksum disable */
     if (ptv->checksum_mode == CHECKSUM_VALIDATION_DISABLE) {
