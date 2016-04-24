@@ -628,6 +628,7 @@ typedef struct DecodeThreadVars_
 
     uint16_t counter_flow_memcap;
     uint16_t counter_flow_nosynfirst;
+    uint16_t counter_flow_unordered_pkts;
 
      uint16_t counter_invalid_events[DECODE_EVENT_PACKET_MAX];
     /* thread data for flow logging api: only used at forced
