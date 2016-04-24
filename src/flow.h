@@ -316,6 +316,7 @@ typedef struct Flow_
 
     /** flow hash - the flow hash before hash table size mod. */
     uint32_t flow_hash;
+    uint32_t rxhash;
 
     /* time stamp of last update (last packet). Set/updated under the
      * flow and flow hash row locks, safe to read under either the

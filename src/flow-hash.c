@@ -779,6 +779,13 @@ Flow *FlowGetFlowFromHash(ThreadVars *tv, DecodeThreadVars *dtv, const Packet *p
     if (timercmp(&p->ts, &f->lastts, <)) {
         SCLogNotice("Unordered packets %ld.%06ld vs %ld.%06ld on %p handled by %s (%d) rxhash: %u", p->ts.tv_sec, p->ts.tv_usec, f->lastts.tv_sec, f->lastts.tv_usec, f, tv->name, f->thread_id, p->rxhash);
     } 
+    if (f->rxhash) {
+        if (p->rxhash != f->rxhash) {
+            SCLogNotice("different rxhash, same flow");
+        }   
+    } else {
+        f->rxhash = p->rxhash;
+    }
     COPY_TIMESTAMP(&p->ts,&f->lastts);
 
     FBLOCK_UNLOCK(fb);
