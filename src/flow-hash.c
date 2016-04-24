@@ -781,7 +781,7 @@ Flow *FlowGetFlowFromHash(ThreadVars *tv, DecodeThreadVars *dtv, const Packet *p
     } 
     if (f->rxhash) {
         if (p->rxhash != f->rxhash) {
-            SCLogNotice("different rxhash, same flow");
+            SCLogNotice("different rxhash, same flow: %u vs %u", p->rxhash, f->rxhash);
         }   
     } else {
         f->rxhash = p->rxhash;
