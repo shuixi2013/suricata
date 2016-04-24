@@ -781,9 +781,12 @@ Flow *FlowGetFlowFromHash(ThreadVars *tv, DecodeThreadVars *dtv, const Packet *p
     } 
     if (f->rxhash) {
         if (p->rxhash != f->rxhash) {
-            SCLogNotice("different rxhash, same flow: %u vs %u", p->rxhash, f->rxhash);
+            SCLogDebug("different rxhash, same flow: %u vs %u", p->rxhash, f->rxhash);
         }   
     } else {
+        if (! TCP_ISSET_FLAG_SYN(p)) {
+            SCLogNotice("first packet, no syn");
+        }
         f->rxhash = p->rxhash;
     }
     COPY_TIMESTAMP(&p->ts,&f->lastts);
