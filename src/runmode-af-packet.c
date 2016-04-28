@@ -122,6 +122,7 @@ void *ParseAFPConfig(const char *iface)
     int boolval;
     char *bpf_filter = NULL;
     char *out_iface = NULL;
+    char *ebpf_file = NULL;
 
     if (iface == NULL) {
         return NULL;
@@ -144,6 +145,7 @@ void *ParseAFPConfig(const char *iface)
     aconf->DerefFunc = AFPDerefConfig;
     aconf->flags = AFP_RING_MODE|AFP_TPACKET_V3;
     aconf->bpf_filter = NULL;
+    aconf->ebpf_lb_file = NULL;
     aconf->out_iface = NULL;
     aconf->copy_mode = AFP_COPY_MODE_NONE;
     aconf->block_timeout = 10;
@@ -315,7 +317,12 @@ void *ParseAFPConfig(const char *iface)
         SCLogConfig("Using rollover based cluster mode for AF_PACKET (iface %s)",
                 aconf->iface);
         aconf->cluster_type = PACKET_FANOUT_ROLLOVER;
-
+#ifdef HAVE_PACKET_EBPF
+    } else if (strcmp(tmpctype, "cluster_ebpf") == 0) {
+        SCLogInfo("Using ebpf based cluster mode for AF_PACKET (iface %s)",
+                aconf->iface);
+        aconf->cluster_type = PACKET_FANOUT_EBPF;
+#endif
     } else {
         SCLogWarning(SC_ERR_INVALID_CLUSTER_TYPE,"invalid cluster-type %s",tmpctype);
     }
@@ -337,6 +344,14 @@ void *ParseAFPConfig(const char *iface)
                 SCLogConfig("Going to use bpf filter %s", aconf->bpf_filter);
             }
         }
+    }
+
+    if (ConfGetChildValueWithDefault(if_root, if_default, "ebpf-lb-file", &ebpf_file) != 1) {
+        aconf->ebpf_lb_file = NULL;
+    } else {
+        SCLogInfo("af-packet will use '%s' as eBPF load balancing file",
+                  ebpf_file);
+        aconf->ebpf_lb_file = ebpf_file;
     }
 
     if ((ConfGetChildValueIntWithDefault(if_root, if_default, "buffer-size", &value)) == 1) {

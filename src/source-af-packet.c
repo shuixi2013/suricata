@@ -32,6 +32,8 @@
  *       interface
  */
 
+#define PCAP_DONT_INCLUDE_PCAP_BPF_H 1
+#define SC_PCAP_DONT_INCLUDE_PCAP_H 1
 #include "suricata-common.h"
 #include "config.h"
 #include "suricata.h"
@@ -52,6 +54,7 @@
 #include "util-checksum.h"
 #include "util-ioctl.h"
 #include "util-host-info.h"
+#include "util-ebpf.h"
 #include "tmqh-packetpool.h"
 #include "source-af-packet.h"
 #include "runmodes.h"
@@ -72,6 +75,22 @@
 
 #if HAVE_SYS_IOCTL_H
 #include <sys/ioctl.h>
+#endif
+
+#include <sys/syscall.h>
+#include <linux/bpf.h>
+
+struct bpf_program {
+	u_int bf_len;
+	struct bpf_insn *bf_insns;
+};
+
+#ifdef HAVE_PCAP_H
+#include <pcap.h>
+#endif
+
+#ifdef HAVE_PCAP_PCAP_H
+#include <pcap/pcap.h>
 #endif
 
 #if HAVE_LINUX_IF_ETHER_H
@@ -243,6 +262,7 @@ typedef struct AFPThreadVars_
     int buffer_size;
     /* Filter */
     char *bpf_filter;
+    const char * ebpf_lb_file;
 
     int promisc;
 
@@ -1809,6 +1829,62 @@ mmap_err:
     return AFP_FATAL_ERROR;
 }
 
+#ifdef HAVE_PACKET_EBPF
+static int sock_fanout_set_ebpf(AFPThreadVars *ptv)
+{
+    char log_buf[1024];
+    union bpf_attr attr;
+    int pfd;
+    MemBuffer *ebpf_filter = NULL;
+
+
+    if (! ptv->ebpf_lb_file) {
+        SCLogError(SC_ERR_INVALID_VALUE, "No file defined to load eBPF from");
+        return -1;
+    }
+
+    ebpf_filter = ebpf_get_lb_func(ptv->ebpf_lb_file);
+
+    if (ebpf_filter == NULL) {
+        SCLogError(SC_ERR_INVALID_VALUE,
+                   "Unable to get eBPF load balancing function in '%s'",
+                   ptv->ebpf_lb_file);
+        return -1;
+    }
+    memset(&attr, 0, sizeof(attr));
+    attr.prog_type = BPF_PROG_TYPE_SOCKET_FILTER;
+    attr.insns = (unsigned long) ebpf_filter->buffer;
+    attr.insn_cnt = (ebpf_filter->offset  + 1) * sizeof(uint8_t) / sizeof(struct bpf_insn);
+    attr.license = (unsigned long) "GPL";
+    attr.log_buf = (unsigned long) log_buf;
+    attr.log_size = sizeof(log_buf);
+    attr.log_level = 1;
+
+    pfd = syscall(__NR_bpf, BPF_PROG_LOAD, &attr, sizeof(attr));
+    if (pfd < 0) {
+        SCLogError(SC_ERR_INVALID_VALUE,
+                   "Error in bpf verifier:\n%s\n", log_buf);
+        MemBufferFree(ebpf_filter);
+        return -1;
+    }
+
+    if (setsockopt(ptv->socket, SOL_PACKET, PACKET_FANOUT_DATA, &pfd, sizeof(pfd))) {
+        SCLogError(SC_ERR_INVALID_VALUE, "Error setting ebpf");
+        MemBufferFree(ebpf_filter);
+        return -1;
+    }
+
+    MemBufferFree(ebpf_filter);
+
+    if (close(pfd)) {
+        SCLogError(SC_ERR_INVALID_VALUE, "Error closing ebpf");
+        return -1;
+    }
+
+    return 0;
+}
+#endif
+
 static int AFPCreateSocket(AFPThreadVars *ptv, char *devname, int verbose)
 {
     int r;
@@ -1893,6 +1969,7 @@ static int AFPCreateSocket(AFPThreadVars *ptv, char *devname, int verbose)
         goto socket_err;
     }
 
+
 #ifdef HAVE_PACKET_FANOUT
     /* add binded socket to fanout group */
     if (ptv->threads > 1) {
@@ -1904,6 +1981,18 @@ static int AFPCreateSocket(AFPThreadVars *ptv, char *devname, int verbose)
         if (r < 0) {
             SCLogError(SC_ERR_AFP_CREATE,
                        "Coudn't set fanout mode, error %s",
+                       strerror(errno));
+            goto socket_err;
+        }
+    }
+#endif
+
+#ifdef HAVE_PACKET_EBPF
+    if (ptv->cluster_type == PACKET_FANOUT_EBPF) {
+        r = sock_fanout_set_ebpf(ptv);
+        if (r < 0) {
+            SCLogError(SC_ERR_AFP_CREATE,
+                       "Coudn't set EBPF, error %s",
                        strerror(errno));
             goto socket_err;
         }
@@ -2080,6 +2169,9 @@ TmEcode ReceiveAFPThreadInit(ThreadVars *tv, void *initdata, void **data)
 
     if (afpconfig->bpf_filter) {
         ptv->bpf_filter = afpconfig->bpf_filter;
+    }
+    if (afpconfig->ebpf_lb_file) {
+        ptv->ebpf_lb_file = afpconfig->ebpf_lb_file;
     }
 
 #ifdef PACKET_STATISTICS

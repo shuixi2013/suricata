@@ -88,6 +88,7 @@ typedef struct AFPIfaceConfig_
     int copy_mode;
     ChecksumValidationMode checksum_mode;
     char *bpf_filter;
+    char *ebpf_lb_file;
     char *out_iface;
     SC_ATOMIC_DECLARE(unsigned int, ref);
     void (*DerefFunc)(void *);
