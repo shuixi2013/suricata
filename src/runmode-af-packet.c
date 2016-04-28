@@ -336,7 +336,12 @@ void *ParseAFPConfig(const char *iface)
         SCLogInfo("Using rollover based cluster mode for AF_PACKET (iface %s)",
                 aconf->iface);
         aconf->cluster_type = PACKET_FANOUT_ROLLOVER;
-
+#ifdef HAVE_PACKET_EBPF
+    } else if (strcmp(tmpctype, "cluster_ebpf") == 0) {
+        SCLogInfo("Using ebpf based cluster mode for AF_PACKET (iface %s)",
+                aconf->iface);
+        aconf->cluster_type = PACKET_FANOUT_EBPF;
+#endif
     } else {
         SCLogError(SC_ERR_INVALID_CLUSTER_TYPE,"invalid cluster-type %s",tmpctype);
         SCFree(aconf);

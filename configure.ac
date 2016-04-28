@@ -1200,7 +1200,12 @@
         AC_CHECK_DECL([SOF_TIMESTAMPING_RAW_HARDWARE],
             AC_DEFINE([HAVE_HW_TIMESTAMPING],[1],[Hardware timestamping support is available]),
             [],
-            [[#include <linux/net_tstamp.h>]])
+            [[#include <linux/net_tstamp.h>]]),
+        AC_CHECK_DECL([PACKET_FANOUT_EPBF],
+            AC_DEFINE([HAVE_PACKET_EBPF],[1],[Recent ebpf fanout support is available]),
+            [],
+            [[#include <linux/if_packet.h>]])
+
     ])
 
   # Netmap support
