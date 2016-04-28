@@ -32,6 +32,7 @@
  *       interface
  */
 
+#define PCAP_DONT_INCLUDE_PCAP_BPF_H 1
 #include "suricata-common.h"
 #include "config.h"
 #include "suricata.h"
@@ -73,6 +74,14 @@
 #if HAVE_SYS_IOCTL_H
 #include <sys/ioctl.h>
 #endif
+
+#include <sys/syscall.h>
+#include <linux/bpf.h>
+
+struct bpf_program {
+	u_int bf_len;
+	struct bpf_insn *bf_insns;
+};
 
 #if HAVE_LINUX_IF_ETHER_H
 #include <linux/if_ether.h>
@@ -1798,6 +1807,58 @@ mmap_err:
     return AFP_FATAL_ERROR;
 }
 
+#ifdef HAVE_PACKET_EBPF
+#define DATA_LEN			100
+#define DATA_CHAR			'a'
+#define DATA_CHAR_1			'b'
+static int sock_fanout_set_ebpf(AFPThreadVars *ptv)
+{
+	const int len_off = __builtin_offsetof(struct __sk_buff, len);
+	struct bpf_insn prog[] = {
+		{ BPF_ALU64 | BPF_MOV | BPF_X,   6, 1, 0, 0 },
+		{ BPF_LDX   | BPF_W   | BPF_MEM, 0, 6, len_off, 0 },
+		{ BPF_JMP   | BPF_JGE | BPF_K,   0, 0, 1, DATA_LEN },
+		{ BPF_JMP   | BPF_JA  | BPF_K,   0, 0, 4, 0 },
+		{ BPF_LD    | BPF_B   | BPF_ABS, 0, 0, 0, 0x50 },
+		{ BPF_JMP   | BPF_JEQ | BPF_K,   0, 0, 2, DATA_CHAR },
+		{ BPF_JMP   | BPF_JEQ | BPF_K,   0, 0, 1, DATA_CHAR_1 },
+		{ BPF_ALU   | BPF_MOV | BPF_K,   0, 0, 0, 0 },
+		{ BPF_JMP   | BPF_EXIT,          0, 0, 0, 0 }
+	};
+	char log_buf[512];
+	union bpf_attr attr;
+	int pfd;
+
+	memset(&attr, 0, sizeof(attr));
+	attr.prog_type = BPF_PROG_TYPE_SOCKET_FILTER;
+	attr.insns = (unsigned long) prog;
+	attr.insn_cnt = sizeof(prog) / sizeof(prog[0]);
+	attr.license = (unsigned long) "GPL";
+	attr.log_buf = (unsigned long) log_buf,
+	attr.log_size = sizeof(log_buf),
+	attr.log_level = 1,
+
+	pfd = syscall(__NR_bpf, BPF_PROG_LOAD, &attr, sizeof(attr));
+	if (pfd < 0) {
+		perror("bpf");
+		fprintf(stderr, "bpf verifier:\n%s\n", log_buf);
+		return -1;
+	}
+
+	if (setsockopt(ptv->socket, SOL_PACKET, PACKET_FANOUT_DATA, &pfd, sizeof(pfd))) {
+		perror("fanout data ebpf");
+		return -1;
+	}
+
+	if (close(pfd)) {
+		perror("close ebpf");
+		return -1;
+	}
+
+    return 0;
+}
+#endif
+
 static int AFPCreateSocket(AFPThreadVars *ptv, char *devname, int verbose)
 {
     int r;
@@ -1882,6 +1943,7 @@ static int AFPCreateSocket(AFPThreadVars *ptv, char *devname, int verbose)
         goto socket_err;
     }
 
+
 #ifdef HAVE_PACKET_FANOUT
     /* add binded socket to fanout group */
     if (ptv->threads > 1) {
@@ -1896,6 +1958,19 @@ static int AFPCreateSocket(AFPThreadVars *ptv, char *devname, int verbose)
                        strerror(errno));
             goto socket_err;
         }
+    }
+#endif
+
+#ifdef HAVE_PACKET_EBPF
+    if (ptv->cluster_type == PACKET_FANOUT_EBPF) {
+        r = sock_fanout_set_ebpf(ptv);
+        if (r < 0) {
+            SCLogError(SC_ERR_AFP_CREATE,
+                       "Coudn't set EBPF, error %s",
+                       strerror(errno));
+            goto socket_err;
+        }
+        SCLogNotice("EBPF is in da place");
     }
 #endif
 

@@ -176,8 +176,10 @@
 #include <pcap/pcap.h>
 #endif
 
+#if 0
 #ifdef HAVE_PCAP_BPF_H
 #include <pcap/bpf.h>
+#endif
 #endif
 
 #if __CYGWIN__
