@@ -132,7 +132,6 @@ typedef struct NFQThreadVars_
     int datalen; /** Length of per function and thread data */
 
     CaptureStats stats;
-
 } NFQThreadVars;
 /* shared vars for all for nfq queues and threads */
 static NFQGlobalVars nfq_g;
@@ -169,6 +168,8 @@ typedef struct NFQCnf_ {
     NFQMode mode;
     uint32_t mark;
     uint32_t mask;
+    uint32_t bypass_mark;
+    uint32_t bypass_mask;
     uint32_t next_queue;
     uint32_t flags;
     uint8_t batchcount;
@@ -261,6 +262,14 @@ void NFQInitConfig(char quiet)
 
     if ((ConfGetInt("nfq.repeat-mask", &value)) == 1) {
         nfq_config.mask = (uint32_t)value;
+    }
+
+    if ((ConfGetInt("nfq.bypass-mark", &value)) == 1) {
+        nfq_config.bypass_mark = (uint32_t)value;
+    }
+
+    if ((ConfGetInt("nfq.bypass-mask", &value)) == 1) {
+        nfq_config.bypass_mask = (uint32_t)value;
     }
 
     if ((ConfGetInt("nfq.route-queue", &value)) == 1) {
@@ -507,6 +516,10 @@ static int NFQCallBack(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
     PKT_SET_SRC(p, PKT_SRC_WIRE);
 
     p->nfq_v.nfq_index = ntv->nfq_index;
+    /* if bypass mask is set then we may want to bypass so set pointer */
+    if (nfq_config.bypass_mask) {
+        p->BypassPacketsFlow = NFQBypassCallback;
+    }
     ret = NFQSetupPkt(p, qh, (void *)nfa);
     if (ret == -1) {
 #ifdef COUNTERS
@@ -780,6 +793,14 @@ TmEcode VerdictNFQThreadDeinit(ThreadVars *tv, void *data)
     NFQMutexUnlock(nq);
 
     return TM_ECODE_OK;
+}
+
+static int NFQBypassCallback(Packet *p)
+{
+    p->nfq_v.mark = (nfq_config.bypass_mark & nfq_config.bypass_mask) | (p->nfq_v.mark & ~nfq_config.bypass_mask);
+    p->flags |= PKT_MARK_MODIFIED;
+
+    return 1;
 }
 
 /**
