@@ -393,7 +393,10 @@ int PacketHasBypassCallback(Packet *p)
 
 void PacketBypassCallback(Packet *p)
 {
-    p->BypassPacketsFlow(p);
+    if (p->BypassPacketsFlow(p)) {
+        /* only set bypassed state if succesful */
+        SC_ATOMIC_SET(p->flow->flow_state, FLOW_STATE_BYPASSED);
+    }
 }
 
 void DecodeRegisterPerfCounters(DecodeThreadVars *dtv, ThreadVars *tv)
