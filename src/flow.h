@@ -417,6 +417,7 @@ enum {
     FLOW_STATE_NEW = 0,
     FLOW_STATE_ESTABLISHED,
     FLOW_STATE_CLOSED,
+    FLOW_STATE_BYPASSED,
 };
 
 typedef struct FlowProto_ {

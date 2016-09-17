@@ -184,6 +184,9 @@ static inline uint32_t FlowGetFlowTimeout(const Flow *f, int state, int emergenc
             case FLOW_STATE_CLOSED:
                 timeout = flow_proto[f->protomap].emerg_closed_timeout;
                 break;
+            case FLOW_STATE_BYPASSED:
+                timeout = 1;
+                break;
         }
     } else { /* implies no emergency */
         switch(state) {
@@ -196,6 +199,9 @@ static inline uint32_t FlowGetFlowTimeout(const Flow *f, int state, int emergenc
                 break;
             case FLOW_STATE_CLOSED:
                 timeout = flow_proto[f->protomap].closed_timeout;
+                break;
+            case FLOW_STATE_BYPASSED:
+                timeout = 1;
                 break;
         }
     }
