@@ -100,6 +100,7 @@
 #include "flow.h"
 #include "flow-timeout.h"
 #include "flow-manager.h"
+#include "flow-bypass.h"
 #include "flow-var.h"
 #include "flow-bit.h"
 #include "pkt-var.h"
@@ -796,6 +797,7 @@ void RegisterAllModules()
     /* managers */
     TmModuleFlowManagerRegister();
     TmModuleFlowRecyclerRegister();
+    TmModuleBypassedFlowManagerRegister();
     /* nfq */
     TmModuleReceiveNFQRegister();
     TmModuleVerdictNFQRegister();
@@ -2589,6 +2591,7 @@ int main(int argc, char **argv)
         /* Spawn the flow manager thread */
         FlowManagerThreadSpawn();
         FlowRecyclerThreadSpawn();
+        BypassedFlowManagerThreadSpawn();
         StatsSpawnThreads();
     }
 
