@@ -2050,6 +2050,7 @@ SURICATA_BUILD_CONF="Suricata Configuration:
   CUDA enabled:                            ${enable_cuda}
   Hyperscan support:                       ${enable_hyperscan}
   Libnet support:                          ${enable_libnet}
+  eBPF support:                            ${enable_ebpf}
 
   Suricatasc install:                      ${enable_python}
 
