@@ -147,6 +147,6 @@ TmEcode AFPPeersListCheck();
 void AFPPeersListClean();
 int AFPGetLinkType(const char *ifname);
 
-int AFPIsFanoutSupported(void);
+int AFPIsFanoutSupported(int cid);
 
 #endif /* __SOURCE_AFP_H__ */

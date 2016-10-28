@@ -398,10 +398,12 @@ finalize:
     /* if the number of threads is not 1, we need to first check if fanout
      * functions on this system. */
     if (aconf->threads != 1) {
-        if (AFPIsFanoutSupported() == 0) {
+        if (AFPIsFanoutSupported(aconf->cluster_id) == 0) {
             if (aconf->threads != 0) {
-                SCLogNotice("fanout not supported on this system, falling "
-                        "back to 1 capture thread");
+                SCLogNotice("fanout not supported on this system "
+                        "or cluster_id '%d' already in use, "
+                        "falling back to 1 capture thread",
+                        aconf->cluster_id);
             }
             aconf->threads = 1;
         }
