@@ -1496,6 +1496,8 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
                    s->sm_lists[DETECT_SM_LIST_DMATCH],
                    s->sm_lists[DETECT_SM_LIST_HCDMATCH]);
 
+
+        int alerts_cnt = p->alerts.cnt;
         /* consider stateful sig matches */
         if (sflags & SIG_FLAG_STATE_MATCH) {
             if (has_state == 0) {
@@ -1531,8 +1533,15 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
 
         if (!(sflags & SIG_FLAG_NOALERT)) {
             /* stateful sigs call PacketAlertAppend from DeStateDetectStartDetection */
-            if (!state_alert)
+            if (!state_alert) {
                 PacketAlertAppend(det_ctx, s, p, 0, alert_flags);
+            } else {
+                /* Loop on alerts created during DeStateDetectStartDetection
+                 * and update the flags for them */
+                for (int i = alerts_cnt; i < p->alerts.cnt; i++) {
+                    p->alerts.alerts[i].flags |= det_ctx->alert_flags;
+                }
+            }
         } else {
             /* apply actions even if not alerting */
             DetectSignatureApplyActions(p, s);
@@ -1544,6 +1553,7 @@ next:
         RULE_PROFILING_END(det_ctx, s, smatch, p);
 
         det_ctx->flags = 0;
+        det_ctx->alert_flags = 0;
         continue;
     }
     PACKET_PROFILING_DETECT_END(p, PROF_DETECT_RULES);
