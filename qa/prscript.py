@@ -80,7 +80,7 @@ username = args.username
 password = args.password
 cookie = None
 
-if args.create or args.start or args.stop:
+if args.create or args.start or args.stop or args.rm:
     if GOT_DOCKER:
         args.docker = True
         args.local = True
