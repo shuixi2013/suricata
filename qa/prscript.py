@@ -279,16 +279,21 @@ def StopContainer():
 
 def RmContainer():
     cli = Client()
+    success = True
     try:
         cli.remove_container('suri-buildbot')
     except:
         print "Unable to remove suri-buildbot container"
+        success = False
         pass
     try:
         cli.remove_image('regit/suri-buildbot:latest')
     except:
         print "Unable to remove suri-buildbot images"
+        success = False
         pass
+    if success == False:
+        sys.exit(-1)
     sys.exit(0)
 
 if GOT_DOCKER:
