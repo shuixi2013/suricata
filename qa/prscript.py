@@ -31,6 +31,7 @@ import sys
 import os
 import copy
 from subprocess import Popen, PIPE
+from distutils.version import LooseVersion
 
 GOT_NOTIFY = True
 try:
@@ -40,7 +41,7 @@ except:
 
 GOT_DOCKER = True
 try:
-    from docker import Client
+    import docker
 except:
     GOT_DOCKER = False
 # variables
@@ -257,28 +258,36 @@ if not args.local:
             sys.exit(-1)
 
 def CreateContainer():
-    cli = Client()
+    cli = docker.Client()
     # FIXME check if existing
     print "Pulling docking image, first run should take long"
     cli.pull('regit/suri-buildbot')
     suri_src_dir = os.path.split(os.path.dirname(os.path.realpath(__file__)))[0]
-    print "Using base src dir: " + suri_src_dir
-    host_config = cli.create_host_config(port_bindings={8010:8010, 22:None}, binds={suri_src_dir: { 'bind': '/data/oisf', 'ro': True}, os.path.join(suri_src_dir,'qa','docker','buildbot.cfg'): { 'bind': '/data/buildbot/master/master.cfg', 'ro': True}})
-    cli.create_container(name='suri-buildbot', image='regit/suri-buildbot', ports=[8010, 22], volumes=['/data/oisf', '/data/buildbot/master/master.cfg'], host_config = host_config)
+    if LooseVersion(docker.version) >= LooseVersion("1.10"):
+        print "Using base src dir: " + suri_src_dir
+        host_config = cli.create_host_config(port_bindings={8010:8010, 22:None}, binds={suri_src_dir: { 'bind': '/data/oisf', 'ro': True}, os.path.join(suri_src_dir,'qa','docker','buildbot.cfg'): { 'bind': '/data/buildbot/master/master.cfg', 'ro': True}})
+        cli.create_container(name='suri-buildbot', image='regit/suri-buildbot', ports=[8010, 22], volumes=['/data/oisf', '/data/buildbot/master/master.cfg'], host_config = host_config)
+    else:
+        cli.create_container(name='suri-buildbot', image='regit/suri-buildbot', ports=[8010, 22], volumes=['/data/oisf', '/data/buildbot/master/master.cfg'])
     sys.exit(0)
 
 def StartContainer():
-    cli = Client()
-    cli.start('suri-buildbot')
+    cli = docker.Client()
+    if LooseVersion(docker.version) >= LooseVersion("1.10"):
+        cli.start('suri-buildbot')
+    else:
+        suri_src_dir = os.path.split(os.path.dirname(os.path.realpath(__file__)))[0]
+        print "Using base src dir: " + suri_src_dir
+        cli.start('suri-buildbot', port_bindings={8010:8010, 22:None}, binds={suri_src_dir: { 'bind': '/data/oisf', 'ro': True}, os.path.join(suri_src_dir,'qa','docker','buildbot.cfg'): { 'bind': '/data/buildbot/master/master.cfg', 'ro': True}} )
     sys.exit(0)
 
 def StopContainer():
-    cli = Client()
+    cli = docker.Client()
     cli.stop('suri-buildbot')
     sys.exit(0)
 
 def RmContainer():
-    cli = Client()
+    cli = docker.Client()
     success = True
     try:
         cli.remove_container('suri-buildbot')
