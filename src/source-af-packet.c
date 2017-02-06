@@ -350,7 +350,7 @@ void AFPPeerClean(AFPPeer *peer)
     SC_ATOMIC_DESTROY(peer->if_idx);
     SC_ATOMIC_DESTROY(peer->state);
     SCFree(peer);
-}
+i
 
 AFPPeersList peerslist;
 
@@ -719,24 +719,6 @@ static TmEcode AFPWritePacket(Packet *p, int version)
             /* write vlan info */
             *(uint16_t *)(pstart + 2 * ETH_ALEN) = htons(0x8100);
             *(uint16_t *)(pstart + 2 * ETH_ALEN + 2) = htons(h.h2->tp_vlan_tci);
-        } else {
-            pstart = GET_PKT_DATA(p);
-            plen = GET_PKT_LEN(p);
-        }
-    } else if (version == TPACKET_V3) {
-        union thdr h;
-        h.raw = p->afp_v.relptr;
-        /* Copy VLAN header from ring memory. For post june 2011 kernel we test
-         * the flag. It is not defined for older kernel so we go best effort
-         * and test for non zero value of the TCI header. */
-        if (h.h3->tp_status & TP_STATUS_VLAN_VALID || h.h3->hv1.tp_vlan_tci) {
-            pstart = GET_PKT_DATA(p) - VLAN_HEADER_LEN;
-            plen = GET_PKT_LEN(p) + VLAN_HEADER_LEN;
-            /* move ethernet addresses */
-            memmove(pstart, GET_PKT_DATA(p), 2 * ETH_ALEN);
-            /* write vlan info */
-            *(uint16_t *)(pstart + 2 * ETH_ALEN) = htons(0x8100);
-            *(uint16_t *)(pstart + 2 * ETH_ALEN + 2) = htons(h.h3->hv1.tp_vlan_tci);
         } else {
             pstart = GET_PKT_DATA(p);
             plen = GET_PKT_LEN(p);
